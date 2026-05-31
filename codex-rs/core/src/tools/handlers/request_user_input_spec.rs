@@ -59,7 +59,6 @@ pub fn create_request_user_input_tool(description: String) -> ToolSpec {
                 "id".to_string(),
                 "header".to_string(),
                 "question".to_string(),
-                "options".to_string(),
             ]),
             Some(false.into()),
         ),
@@ -99,14 +98,6 @@ pub fn request_user_input_unavailable_message(
 pub fn normalize_request_user_input_args(
     mut args: RequestUserInputArgs,
 ) -> Result<RequestUserInputArgs, String> {
-    let missing_options = args
-        .questions
-        .iter()
-        .any(|question| question.options.as_ref().is_none_or(Vec::is_empty));
-    if missing_options {
-        return Err("request_user_input requires non-empty options for every question".to_string());
-    }
-
     for question in &mut args.questions {
         question.is_other = true;
     }

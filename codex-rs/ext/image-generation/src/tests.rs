@@ -197,6 +197,7 @@ fn edit_reuses_images_from_prior_standalone_imagegen_calls() {
             namespace: Some(IMAGE_GEN_NAMESPACE.to_string()),
             arguments: "{}".to_string(),
             call_id: "imagegen-1".to_string(),
+            extra_content: None,
         },
         generated_function_output("imagegen-1", "standalone"),
     ];
@@ -219,6 +220,7 @@ fn edit_keeps_newest_standalone_generated_images_when_over_limit() {
                     namespace: Some(IMAGE_GEN_NAMESPACE.to_string()),
                     arguments: "{}".to_string(),
                     call_id: call_id.clone(),
+                    extra_content: None,
                 },
                 generated_function_output(&call_id, &index.to_string()),
             ]

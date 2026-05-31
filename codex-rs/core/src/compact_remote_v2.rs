@@ -570,6 +570,7 @@ mod tests {
                 namespace: None,
                 arguments: "{}".to_string(),
                 call_id: "call_1".to_string(),
+                extra_content: None,
             },
             ResponseItem::Compaction {
                 encrypted_content: "old".to_string(),
