@@ -64,9 +64,14 @@ pub fn create_update_goal_tool() -> ToolSpec {
     let properties = BTreeMap::from([(
         "status".to_string(),
         JsonSchema::string_enum(
-            vec![json!("complete"), json!("blocked")],
+            vec![
+                json!("active"),
+                json!("paused"),
+                json!("complete"),
+                json!("blocked"),
+            ],
             Some(
-                "Required. Set to `complete` only when the objective is achieved and no required work remains. Set to `blocked` only after the same blocking condition has recurred for at least three consecutive goal turns and the agent is at an impasse. After a previously blocked goal is resumed, the resumed run starts a fresh blocked audit."
+                "Required. Set to `active` to resume a paused procedure, `paused` when the customer asks to stop, defer, or switch away, `complete` only when the procedure is actually complete, and `blocked` only for a real impasse. Do not set budget_limited or usage_limited; those statuses are system controlled."
                     .to_string(),
             ),
         ),
@@ -74,16 +79,15 @@ pub fn create_update_goal_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: UPDATE_GOAL_TOOL_NAME.to_string(),
-        description: r#"Update the existing goal.
-Use this tool only to mark the goal achieved or genuinely blocked.
-Set status to `complete` only when the objective has actually been achieved and no required work remains.
-Set status to `blocked` only when the same blocking condition has repeated for at least three consecutive goal turns, counting the original/user-triggered turn and any automatic continuations, and the agent cannot make meaningful progress without user input or an external-state change.
-If the user resumes a goal that was previously marked `blocked`, treat the resumed run as a fresh blocked audit. If the same blocking condition then repeats for at least three consecutive resumed goal turns, set status to `blocked` again.
-Once the blocked threshold is satisfied, do not keep reporting that you are still blocked while leaving the goal active; set status to `blocked`.
+        description: r#"Update the existing goal status for a running customer procedure.
+Use `active` only to resume a paused procedure.
+Use `paused` when the customer asks to stop, continue later, or switch away before the procedure is complete.
+Use `complete` only when the authored procedure is actually complete and no required work remains.
+Use `blocked` only for a real impasse that cannot be resolved by asking the customer or using available tools.
 Do not use `blocked` merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification.
 Do not mark a goal complete merely because its budget is nearly exhausted or because you are stopping work.
-You cannot use this tool to pause, resume, budget-limit, or usage-limit a goal; those status changes are controlled by the user or system.
-When marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user."#
+You cannot set budget_limited or usage_limited; those statuses are controlled by the system.
+When marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user. Do not report usage for unbudgeted goals."#
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -101,7 +105,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_goal_tool_exposes_complete_and_blocked_statuses() {
+    fn update_goal_tool_exposes_model_managed_procedure_statuses() {
         let ToolSpec::Function(tool) = create_update_goal_tool() else {
             panic!("update_goal should be a function tool");
         };
@@ -114,7 +118,12 @@ mod tests {
 
         assert_eq!(
             status.enum_values,
-            Some(vec![json!("complete"), json!("blocked")])
+            Some(vec![
+                json!("active"),
+                json!("paused"),
+                json!("complete"),
+                json!("blocked"),
+            ])
         );
     }
 }

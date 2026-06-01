@@ -1,8 +1,9 @@
 //! Built-in model tool handlers for persisted thread goals.
 //!
-//! The public tool contract intentionally splits goal creation from stopped
-//! status updates: `create_goal` starts an active objective, while
-//! `update_goal` can only mark the existing goal complete or blocked.
+//! The public tool contract intentionally splits goal creation from status
+//! updates: `create_goal` starts an active objective, while `update_goal`
+//! updates the model-managed procedure states. Budget and usage limit statuses
+//! remain system-managed.
 
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::FunctionToolOutput;
@@ -87,14 +88,26 @@ fn goal_response(
 }
 
 fn completion_budget_report(goal: &ThreadGoal) -> Option<String> {
-    if goal.token_budget.is_none() && goal.time_used_seconds <= 0 {
-        None
-    } else {
-        Some(
-            "Goal achieved. Report final usage from this tool result's structured goal fields. If `goal.tokenBudget` is present, include token usage from `goal.tokensUsed` and `goal.tokenBudget`. If `goal.timeUsedSeconds` is greater than 0, summarize elapsed time in a concise, human-friendly form appropriate to the response language."
-                .to_string(),
-        )
-    }
+    goal.token_budget?;
+    Some(
+        "Goal achieved. This was a budgeted goal. Report final token usage from this tool result's structured `goal.tokensUsed` and `goal.tokenBudget` fields."
+            .to_string(),
+    )
+}
+
+#[cfg(test)]
+fn completion_budget_report_text() -> String {
+    completion_budget_report(&ThreadGoal {
+        thread_id: codex_protocol::ThreadId::new(),
+        objective: "test".to_string(),
+        status: ThreadGoalStatus::Complete,
+        token_budget: Some(1),
+        tokens_used: 1,
+        time_used_seconds: 1,
+        created_at: 1,
+        updated_at: 1,
+    })
+    .expect("budgeted goal should include report text")
 }
 
 #[cfg(test)]
@@ -123,10 +136,7 @@ mod tests {
             GoalToolResponse {
                 goal: Some(goal),
                 remaining_tokens: Some(6_750),
-                completion_budget_report: Some(
-                    "Goal achieved. Report final usage from this tool result's structured goal fields. If `goal.tokenBudget` is present, include token usage from `goal.tokensUsed` and `goal.tokenBudget`. If `goal.timeUsedSeconds` is greater than 0, summarize elapsed time in a concise, human-friendly form appropriate to the response language."
-                        .to_string()
-                ),
+                completion_budget_report: Some(completion_budget_report_text()),
             }
         );
     }
@@ -139,7 +149,7 @@ mod tests {
             status: ThreadGoalStatus::Complete,
             token_budget: None,
             tokens_used: 120,
-            time_used_seconds: 0,
+            time_used_seconds: 75,
             created_at: 1,
             updated_at: 2,
         };

@@ -53,10 +53,13 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
         let args: UpdateGoalArgs = parse_arguments(&arguments)?;
         if !matches!(
             args.status,
-            ThreadGoalStatus::Complete | ThreadGoalStatus::Blocked
+            ThreadGoalStatus::Active
+                | ThreadGoalStatus::Paused
+                | ThreadGoalStatus::Complete
+                | ThreadGoalStatus::Blocked
         ) {
             return Err(FunctionCallError::RespondToModel(
-                "update_goal can only mark the existing goal complete or blocked; pause, resume, budget-limited, and usage-limited status changes are controlled by the user or system"
+                "update_goal can only set active, paused, complete, or blocked; budget_limited and usage_limited are controlled by the system"
                     .to_string(),
             ));
         }
