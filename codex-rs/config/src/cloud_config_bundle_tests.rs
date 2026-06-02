@@ -64,7 +64,7 @@ fn bundle_layers_preserve_enterprise_managed_bucket_order() {
 
     assert_eq!(
         layers
-            .enterprise_managed_config
+            .enterprise_managed_config()
             .iter()
             .map(|layer| layer.name.clone())
             .collect::<Vec<_>>(),
@@ -79,8 +79,9 @@ fn bundle_layers_preserve_enterprise_managed_bucket_order() {
             },
         ]
     );
+    let (_config_layers, requirements_layers) = layers.into_parts();
     assert_eq!(
-        compose_requirements(layers.enterprise_managed_requirements)
+        compose_requirements(requirements_layers)
             .expect("requirements should compose")
             .expect("requirements should be present")
             .into_toml(),

@@ -68,12 +68,27 @@ pub struct CloudRequirementsFragment {
 #[derive(Clone, Debug)]
 pub struct CloudConfigBundleLayers {
     /// Enterprise-managed config layers in `ConfigLayerStack` order.
-    pub enterprise_managed_config: Vec<ConfigLayerEntry>,
+    enterprise_managed_config: Vec<ConfigLayerEntry>,
     /// Enterprise-managed requirements layers in requirements layer merge order.
-    pub enterprise_managed_requirements: Vec<RequirementsLayerEntry>,
+    enterprise_managed_requirements: Vec<RequirementsLayerEntry>,
 }
 
 impl CloudConfigBundleLayers {
+    pub fn enterprise_managed_config(&self) -> &[ConfigLayerEntry] {
+        &self.enterprise_managed_config
+    }
+
+    pub fn enterprise_managed_requirements(&self) -> &[RequirementsLayerEntry] {
+        &self.enterprise_managed_requirements
+    }
+
+    pub fn into_parts(self) -> (Vec<ConfigLayerEntry>, Vec<RequirementsLayerEntry>) {
+        (
+            self.enterprise_managed_config,
+            self.enterprise_managed_requirements,
+        )
+    }
+
     pub fn from_bundle(
         bundle: CloudConfigBundle,
         base_dir: &AbsolutePathBuf,

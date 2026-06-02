@@ -34,7 +34,6 @@ use hmac::Mac;
 use serde::Deserialize;
 use serde::Serialize;
 use sha2::Sha256;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -129,13 +128,13 @@ enum CloudRequirementsError {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct CloudRequirementsCacheFile {
-    signed_payload: CloudRequirementsCacheSignedPayload,
+struct CloudRequirementsCacheFileV1 {
+    signed_payload: CloudRequirementsCacheSignedPayloadV1,
     signature: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct CloudRequirementsCacheSignedPayload {
+struct CloudRequirementsCacheSignedPayloadV1 {
     version: u32,
     cached_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
@@ -195,7 +194,7 @@ fn optional_bundle(bundle: CloudConfigBundle) -> Option<CloudConfigBundle> {
     }
 }
 
-fn cache_payload_bytes(payload: &CloudRequirementsCacheSignedPayload) -> Option<Vec<u8>> {
+fn cache_payload_bytes(payload: &CloudRequirementsCacheSignedPayloadV1) -> Option<Vec<u8>> {
     serde_json::to_vec(&payload).ok()
 }
 
@@ -310,8 +309,8 @@ fn requirements_fragment_from_delivered(
 struct CloudRequirementsService {
     auth_manager: Arc<AuthManager>,
     fetcher: Arc<dyn RequirementsFetcher>,
-    cache_path: PathBuf,
-    codex_home: PathBuf,
+    cache_path: AbsolutePathBuf,
+    codex_home: AbsolutePathBuf,
     timeout: Duration,
 }
 impl CloudRequirementsService {
@@ -321,6 +320,7 @@ impl CloudRequirementsService {
         codex_home: PathBuf,
         timeout: Duration,
     ) -> Self {
+        let codex_home = AbsolutePathBuf::resolve_path_against_base(codex_home, "/");
         Self {
             auth_manager,
             fetcher,
@@ -401,7 +401,7 @@ impl CloudRequirementsService {
             .await
         {
             Ok(signed_payload) => {
-                if let Err(err) = validate_bundle(&signed_payload.bundle, &self.codex_home) {
+                if let Err(err) = prepare_bundle_layers(&signed_payload.bundle, &self.codex_home) {
                     tracing::warn!(
                         path = %self.cache_path.display(),
                         error = %err,
@@ -547,7 +547,7 @@ impl CloudRequirementsService {
                 }
             };
 
-            if let Err(err) = validate_bundle(&bundle, &self.codex_home) {
+            if let Err(err) = prepare_bundle_layers(&bundle, &self.codex_home) {
                 emit_fetch_final_metric(
                     trigger,
                     "error",
@@ -642,7 +642,7 @@ impl CloudRequirementsService {
         &self,
         chatgpt_user_id: Option<&str>,
         account_id: Option<&str>,
-    ) -> Result<CloudRequirementsCacheSignedPayload, CacheLoadStatus> {
+    ) -> Result<CloudRequirementsCacheSignedPayloadV1, CacheLoadStatus> {
         let (Some(chatgpt_user_id), Some(account_id)) = (chatgpt_user_id, account_id) else {
             return Err(CacheLoadStatus::AuthIdentityIncomplete);
         };
@@ -657,7 +657,7 @@ impl CloudRequirementsService {
             }
         };
 
-        let cache_file: CloudRequirementsCacheFile = match serde_json::from_slice(&bytes) {
+        let cache_file: CloudRequirementsCacheFileV1 = match serde_json::from_slice(&bytes) {
             Ok(cache_file) => cache_file,
             Err(err) => {
                 return Err(CacheLoadStatus::CacheParseFailed(err.to_string()));
@@ -730,7 +730,7 @@ impl CloudRequirementsService {
                     .map_err(|_| CloudRequirementsError::CacheWrite)?,
             )
             .ok_or(CloudRequirementsError::CacheWrite)?;
-        let signed_payload = CloudRequirementsCacheSignedPayload {
+        let signed_payload = CloudRequirementsCacheSignedPayloadV1 {
             version: CLOUD_CONFIG_BUNDLE_CACHE_VERSION,
             cached_at: now,
             expires_at,
@@ -740,7 +740,7 @@ impl CloudRequirementsService {
         };
         let payload_bytes =
             cache_payload_bytes(&signed_payload).ok_or(CloudRequirementsError::CacheWrite)?;
-        let serialized = serde_json::to_vec_pretty(&CloudRequirementsCacheFile {
+        let serialized = serde_json::to_vec_pretty(&CloudRequirementsCacheFileV1 {
             signature: sign_cache_payload(&payload_bytes)
                 .ok_or(CloudRequirementsError::CacheWrite)?,
             signed_payload,
@@ -810,29 +810,20 @@ pub async fn cloud_config_bundle_loader_for_storage(
     cloud_config_bundle_loader(auth_manager, chatgpt_base_url, codex_home)
 }
 
-fn validate_bundle(
+fn prepare_bundle_layers(
     bundle: &CloudConfigBundle,
-    codex_home: &Path,
-) -> Result<(), CloudConfigBundleLoadError> {
-    let base_dir = AbsolutePathBuf::from_absolute_path(codex_home).map_err(|err| {
-        CloudConfigBundleLoadError::new(
-            CloudConfigBundleLoadErrorCode::Internal,
-            /*status_code*/ None,
-            format!("failed to validate cloud config bundle base path: {err}"),
-        )
-    })?;
+    codex_home: &AbsolutePathBuf,
+) -> Result<CloudConfigBundleLayers, CloudConfigBundleLoadError> {
     let bundle_layers =
-        CloudConfigBundleLayers::from_bundle(bundle.clone(), &base_dir).map_err(|err| {
+        CloudConfigBundleLayers::from_bundle(bundle.clone(), codex_home).map_err(|err| {
             CloudConfigBundleLoadError::new(
                 CloudConfigBundleLoadErrorCode::InvalidBundle,
                 /*status_code*/ None,
                 format!("invalid cloud config bundle: {err}"),
             )
         })?;
-    let CloudConfigBundleLayers {
-        enterprise_managed_config: _,
-        enterprise_managed_requirements,
-    } = bundle_layers;
+    let (_enterprise_managed_config, enterprise_managed_requirements) =
+        bundle_layers.clone().into_parts();
 
     compose_requirements(enterprise_managed_requirements).map_err(|err| {
         CloudConfigBundleLoadError::new(
@@ -842,7 +833,7 @@ fn validate_bundle(
         )
     })?;
 
-    Ok(())
+    Ok(bundle_layers)
 }
 
 fn emit_fetch_attempt_metric(
@@ -1739,11 +1730,13 @@ mod tests {
             .await
             .expect_err("cloud config bundle should surface auth recovery errors");
         assert_eq!(
-            err.to_string(),
-            "Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again."
+            err,
+            CloudConfigBundleLoadError::new(
+                CloudConfigBundleLoadErrorCode::Auth,
+                Some(401),
+                "Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again."
+            )
         );
-        assert_eq!(err.code(), CloudConfigBundleLoadErrorCode::Auth);
-        assert_eq!(err.status_code(), Some(401));
         assert_eq!(fetcher.request_count.load(Ordering::SeqCst), 1);
     }
 
@@ -1969,257 +1962,5 @@ mod tests {
 }
 
 #[cfg(test)]
-mod cache_tests {
-    use super::*;
-    use codex_config::CloudConfigFragment;
-    use codex_config::CloudConfigTomlBundle;
-    use codex_config::CloudRequirementsFragment;
-    use codex_config::CloudRequirementsTomlBundle;
-    use pretty_assertions::assert_eq;
-    use tempfile::tempdir;
-
-    fn test_bundle() -> CloudConfigBundle {
-        CloudConfigBundle {
-            config_toml: CloudConfigTomlBundle {
-                enterprise_managed: vec![CloudConfigFragment {
-                    id: "cfg_1".to_string(),
-                    name: "Base config".to_string(),
-                    contents: "model = \"gpt-5\"".to_string(),
-                }],
-            },
-            requirements_toml: CloudRequirementsTomlBundle {
-                enterprise_managed: vec![CloudRequirementsFragment {
-                    id: "req_1".to_string(),
-                    name: "Base requirements".to_string(),
-                    contents: "allowed_approval_policies = [\"never\"]".to_string(),
-                }],
-            },
-        }
-    }
-
-    struct NeverFetcher;
-
-    #[async_trait]
-    impl RequirementsFetcher for NeverFetcher {
-        async fn fetch_requirements(
-            &self,
-            _auth: &CodexAuth,
-        ) -> Result<CloudConfigBundle, FetchAttemptError> {
-            panic!("cache tests should not fetch from remote");
-        }
-    }
-
-    async fn test_service(codex_home: &Path) -> CloudRequirementsService {
-        let auth_home = tempdir().expect("tempdir");
-        let auth_manager = Arc::new(
-            AuthManager::new(
-                auth_home.path().to_path_buf(),
-                /*enable_codex_api_key_env*/ false,
-                AuthCredentialsStoreMode::File,
-                /*chatgpt_base_url*/ None,
-            )
-            .await,
-        );
-        CloudRequirementsService::new(
-            auth_manager,
-            Arc::new(NeverFetcher),
-            codex_home.to_path_buf(),
-            CLOUD_REQUIREMENTS_TIMEOUT,
-        )
-    }
-
-    fn signed_cache_file(
-        signed_payload: CloudRequirementsCacheSignedPayload,
-    ) -> CloudRequirementsCacheFile {
-        let payload_bytes = cache_payload_bytes(&signed_payload).expect("payload bytes");
-        CloudRequirementsCacheFile {
-            signature: sign_cache_payload(&payload_bytes).expect("signature"),
-            signed_payload,
-        }
-    }
-
-    fn valid_signed_payload() -> CloudRequirementsCacheSignedPayload {
-        let cached_at = Utc::now();
-        CloudRequirementsCacheSignedPayload {
-            version: CLOUD_CONFIG_BUNDLE_CACHE_VERSION,
-            cached_at,
-            expires_at: cached_at + ChronoDuration::minutes(30),
-            chatgpt_user_id: Some("user-12345".to_string()),
-            account_id: Some("account-12345".to_string()),
-            bundle: test_bundle(),
-        }
-    }
-
-    fn write_cache_file(cache_path: &Path, cache_file: &CloudRequirementsCacheFile) {
-        std::fs::write(
-            cache_path,
-            serde_json::to_vec_pretty(cache_file).expect("serialize cache"),
-        )
-        .expect("write cache");
-    }
-
-    #[tokio::test]
-    async fn save_writes_signed_payload_and_loads_for_matching_identity() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-        let bundle = test_bundle();
-
-        service
-            .save_cache(
-                Some("user-12345".to_string()),
-                Some("account-12345".to_string()),
-                bundle.clone(),
-            )
-            .await
-            .expect("save cache");
-
-        let cache_file: CloudRequirementsCacheFile =
-            serde_json::from_slice(&std::fs::read(&service.cache_path).expect("read cache"))
-                .expect("parse cache");
-        assert_eq!(cache_file.signed_payload.version, 1);
-        assert_eq!(
-            cache_file.signed_payload.chatgpt_user_id,
-            Some("user-12345".to_string())
-        );
-        assert_eq!(
-            cache_file.signed_payload.account_id,
-            Some("account-12345".to_string())
-        );
-        assert_eq!(cache_file.signed_payload.bundle, bundle);
-        assert!(
-            cache_file.signed_payload.expires_at
-                <= cache_file.signed_payload.cached_at + ChronoDuration::minutes(30)
-        );
-        assert!(cache_file.signed_payload.expires_at > cache_file.signed_payload.cached_at);
-        assert!(verify_cache_signature(
-            &cache_payload_bytes(&cache_file.signed_payload).expect("payload bytes"),
-            &cache_file.signature,
-        ));
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Ok(cache_file.signed_payload)
-        );
-    }
-
-    #[tokio::test]
-    async fn load_rejects_missing_request_identity_before_reading_cache_file() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-
-        assert_eq!(
-            service
-                .load_cache(/*chatgpt_user_id*/ None, Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::AuthIdentityIncomplete)
-        );
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), /*account_id*/ None)
-                .await,
-            Err(CacheLoadStatus::AuthIdentityIncomplete)
-        );
-    }
-
-    #[tokio::test]
-    async fn load_reports_missing_and_malformed_cache_files() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheFileNotFound)
-        );
-
-        std::fs::write(&service.cache_path, "{").expect("write malformed cache");
-        assert!(matches!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheParseFailed(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn load_rejects_tampered_payload() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-        let mut cache_file = signed_cache_file(valid_signed_payload());
-        cache_file
-            .signed_payload
-            .bundle
-            .requirements_toml
-            .enterprise_managed[0]
-            .contents = "allowed_approval_policies = [\"on-request\"]".to_string();
-        write_cache_file(&service.cache_path, &cache_file);
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheSignatureInvalid)
-        );
-    }
-
-    #[tokio::test]
-    async fn load_rejects_cache_for_incomplete_or_different_identity() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-        let cache_file = signed_cache_file(valid_signed_payload());
-        write_cache_file(&service.cache_path, &cache_file);
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-99999"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheIdentityMismatch)
-        );
-
-        let mut signed_payload = valid_signed_payload();
-        signed_payload.chatgpt_user_id = None;
-        write_cache_file(&service.cache_path, &signed_cache_file(signed_payload));
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheIdentityIncomplete)
-        );
-    }
-
-    #[tokio::test]
-    async fn load_rejects_expired_cache() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-        let mut signed_payload = valid_signed_payload();
-        signed_payload.expires_at = Utc::now() - ChronoDuration::seconds(1);
-        write_cache_file(&service.cache_path, &signed_cache_file(signed_payload));
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheExpired)
-        );
-    }
-
-    #[tokio::test]
-    async fn load_rejects_unsupported_cache_version() {
-        let codex_home = tempdir().expect("tempdir");
-        let service = test_service(codex_home.path()).await;
-        let mut signed_payload = valid_signed_payload();
-        signed_payload.version = 2;
-        write_cache_file(&service.cache_path, &signed_cache_file(signed_payload));
-
-        assert_eq!(
-            service
-                .load_cache(Some("user-12345"), Some("account-12345"))
-                .await,
-            Err(CacheLoadStatus::CacheVersionUnsupported(2))
-        );
-    }
-}
+#[path = "lib_cache_tests.rs"]
+mod cache_tests;

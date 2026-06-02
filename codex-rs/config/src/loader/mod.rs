@@ -143,10 +143,8 @@ pub async fn load_config_layers_state(
             } else {
                 CloudConfigBundleLayers::from_bundle(bundle, &cloud_config_base_dir)?
             };
-            let CloudConfigBundleLayers {
-                enterprise_managed_config,
-                enterprise_managed_requirements,
-            } = bundle_layers;
+            let (enterprise_managed_config, enterprise_managed_requirements) =
+                bundle_layers.into_parts();
             bundle_requirements_layers = enterprise_managed_requirements;
             cloud_config_layers = enterprise_managed_config;
         }
@@ -560,9 +558,8 @@ fn validate_cli_overrides_strictly(
     Ok(())
 }
 
-/// If available, load requirements from the platform system `requirements.toml`
+/// If available, load requirements from the platform's system `requirements.toml`
 /// location as a requirements layer.
-#[doc(hidden)]
 pub async fn load_requirements_toml(
     fs: &dyn ExecutorFileSystem,
     requirements_toml_file: &AbsolutePathBuf,
@@ -730,7 +727,9 @@ fn requirements_layers_from_legacy_scheme(
         managed_config_from_mdm,
     } = loaded_config_layers;
 
-    let mut layers = Vec::new();
+    let mut layers = Vec::with_capacity(
+        usize::from(managed_config.is_some()) + usize::from(managed_config_from_mdm.is_some()),
+    );
     for (source, config) in managed_config
         .map(|c| {
             (
