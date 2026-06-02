@@ -130,6 +130,7 @@ async fn request_permissions_routes_to_guardian_when_reviewer_is_enabled() {
             &turn_context,
             "perm-call-1".to_string(),
             RequestPermissionsArgs {
+                environment_id: None,
                 reason: Some("need network".to_string()),
                 permissions: requested_permissions.clone(),
             },
@@ -218,6 +219,7 @@ async fn request_permissions_guardian_review_stops_when_cancelled() {
                     &turn_context,
                     "perm-call-cancelled".to_string(),
                     RequestPermissionsArgs {
+                        environment_id: None,
                         reason: Some("need network".to_string()),
                         permissions: requested_permissions,
                     },
