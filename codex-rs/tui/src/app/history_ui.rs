@@ -120,7 +120,17 @@ fn desktop_thread_url(thread_id: ThreadId) -> String {
 
 #[cfg(target_os = "macos")]
 fn open_desktop_thread_url(url: &str) -> Result<(), String> {
+    let app_path = std::iter::once(std::path::PathBuf::from("/Applications/Codex.app"))
+        .chain(std::env::var_os("HOME").map(|home| {
+            std::path::PathBuf::from(home)
+                .join("Applications")
+                .join("Codex.app")
+        }))
+        .find(|path| path.is_dir())
+        .ok_or_else(|| "Codex.app was not found in /Applications or ~/Applications".to_string())?;
     let status = std::process::Command::new("open")
+        .arg("-a")
+        .arg(&app_path)
         .arg(url)
         .status()
         .map_err(|err| format!("failed to invoke `open`: {err}"))?;
@@ -128,7 +138,10 @@ fn open_desktop_thread_url(url: &str) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("`open {url}` exited with {status}"))
+        Err(format!(
+            "`open -a {} {url}` exited with {status}",
+            app_path.display()
+        ))
     }
 }
 
@@ -164,6 +177,7 @@ fn open_desktop_thread_url(url: &str) -> Result<(), String> {
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 const WINDOWS_DESKTOP_APP_LAUNCH_SCRIPT: &str = r#"
+& { param($url)
 $ErrorActionPreference = 'Stop'
 $installLocation = (Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue).InstallLocation
 if ([string]::IsNullOrWhiteSpace($installLocation)) {
@@ -183,7 +197,8 @@ if (-not (Test-Path $app)) {
     exit 1
 }
 
-Start-Process -FilePath $exe -WorkingDirectory $appDir -ArgumentList @("""$app""", """$($args[0])""")
+Start-Process -FilePath $exe -WorkingDirectory $appDir -ArgumentList @("""$app""", """$url""")
+}
 "#;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
