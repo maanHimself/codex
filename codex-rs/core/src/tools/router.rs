@@ -13,6 +13,7 @@ use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::models::SearchToolCallParams;
 use codex_tools::DiscoverableTool;
+use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ToolCall as ExtensionToolCall;
 use codex_tools::ToolExecutor;
 use codex_tools::ToolName;
@@ -34,6 +35,7 @@ pub struct ToolCall {
 pub struct ToolRouter {
     registry: ToolRegistry,
     model_visible_specs: Vec<ToolSpec>,
+    active_dynamic_tool_namespace: Option<String>,
 }
 
 pub(crate) struct ToolRouterParams<'a> {
@@ -42,6 +44,7 @@ pub(crate) struct ToolRouterParams<'a> {
     pub(crate) discoverable_tools: Option<Vec<DiscoverableTool>>,
     pub(crate) extension_tool_executors: Vec<Arc<dyn ToolExecutor<ExtensionToolCall>>>,
     pub(crate) dynamic_tools: &'a [DynamicToolSpec],
+    pub(crate) active_dynamic_tool_namespace: Option<String>,
 }
 
 impl ToolRouter {
@@ -49,10 +52,15 @@ impl ToolRouter {
         build_tool_router(turn_context, params)
     }
 
-    pub(crate) fn from_parts(registry: ToolRegistry, model_visible_specs: Vec<ToolSpec>) -> Self {
+    pub(crate) fn from_parts(
+        registry: ToolRegistry,
+        model_visible_specs: Vec<ToolSpec>,
+        active_dynamic_tool_namespace: Option<String>,
+    ) -> Self {
         Self {
             registry,
             model_visible_specs,
+            active_dynamic_tool_namespace,
         }
     }
 
@@ -77,18 +85,21 @@ impl ToolRouter {
         &self,
         tool_name: &ToolName,
     ) -> Option<Box<dyn ToolArgumentDiffConsumer>> {
-        self.registry.create_diff_consumer(tool_name)
+        let resolved_tool_name = self.resolve_flat_model_tool_name(tool_name);
+        self.registry.create_diff_consumer(&resolved_tool_name)
     }
 
     pub fn tool_supports_parallel(&self, call: &ToolCall) -> bool {
+        let tool_name = self.resolve_flat_model_tool_name(&call.tool_name);
         self.registry
-            .supports_parallel_tool_calls(&call.tool_name)
+            .supports_parallel_tool_calls(&tool_name)
             .unwrap_or(false)
     }
 
     pub fn tool_waits_for_runtime_cancellation(&self, call: &ToolCall) -> bool {
+        let tool_name = self.resolve_flat_model_tool_name(&call.tool_name);
         self.registry
-            .waits_for_runtime_cancellation(&call.tool_name)
+            .waits_for_runtime_cancellation(&tool_name)
             .unwrap_or(false)
     }
 
@@ -201,10 +212,11 @@ impl ToolRouter {
         terminal_outcome_reached: Option<Arc<AtomicBool>>,
     ) -> Result<AnyToolResult, FunctionCallError> {
         let ToolCall {
-            tool_name,
+            mut tool_name,
             call_id,
             payload,
         } = call;
+        tool_name = self.resolve_flat_model_tool_name(&tool_name);
 
         let invocation = ToolInvocation {
             session,
@@ -221,6 +233,43 @@ impl ToolRouter {
             .dispatch_any_with_terminal_outcome(invocation, terminal_outcome_reached)
             .await
     }
+
+    fn resolve_flat_model_tool_name(&self, tool_name: &ToolName) -> ToolName {
+        if tool_name.namespace.is_some() {
+            return tool_name.clone();
+        }
+
+        let flat_name = tool_name.name.as_str();
+        if let Some(active_namespace) = self.active_dynamic_tool_namespace.as_deref()
+            && self
+                .model_visible_specs
+                .iter()
+                .any(|spec| namespace_has_function(spec, active_namespace, flat_name))
+        {
+            return ToolName::namespaced(active_namespace.to_string(), flat_name.to_string());
+        }
+
+        for spec in &self.model_visible_specs {
+            let ToolSpec::Namespace(namespace) = spec else {
+                continue;
+            };
+            if namespace_has_function(spec, &namespace.name, flat_name) {
+                return ToolName::namespaced(namespace.name.clone(), flat_name.to_string());
+            }
+        }
+
+        tool_name.clone()
+    }
+}
+
+fn namespace_has_function(spec: &ToolSpec, namespace_name: &str, function_name: &str) -> bool {
+    let ToolSpec::Namespace(namespace) = spec else {
+        return false;
+    };
+    namespace.name == namespace_name
+        && namespace.tools.iter().any(|tool| match tool {
+            ResponsesApiNamespaceTool::Function(tool) => tool.name == function_name,
+        })
 }
 
 pub(crate) fn extension_tool_executors(

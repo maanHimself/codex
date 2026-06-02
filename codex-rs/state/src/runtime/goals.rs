@@ -45,6 +45,7 @@ SELECT
     goal_id,
     objective,
     status,
+    tool_namespace,
     token_budget,
     tokens_used,
     time_used_seconds,
@@ -68,6 +69,24 @@ WHERE thread_id = ?
         status: crate::ThreadGoalStatus,
         token_budget: Option<i64>,
     ) -> anyhow::Result<crate::ThreadGoal> {
+        self.replace_thread_goal_with_tool_namespace(
+            thread_id,
+            objective,
+            status,
+            None,
+            token_budget,
+        )
+        .await
+    }
+
+    pub async fn replace_thread_goal_with_tool_namespace(
+        &self,
+        thread_id: ThreadId,
+        objective: &str,
+        status: crate::ThreadGoalStatus,
+        tool_namespace: Option<String>,
+        token_budget: Option<i64>,
+    ) -> anyhow::Result<crate::ThreadGoal> {
         let goal_id = Uuid::new_v4().to_string();
         let now_ms = datetime_to_epoch_millis(Utc::now());
         let status = status_after_budget_limit(status, /*tokens_used*/ 0, token_budget);
@@ -78,16 +97,18 @@ INSERT INTO thread_goals (
     goal_id,
     objective,
     status,
+    tool_namespace,
     token_budget,
     tokens_used,
     time_used_seconds,
     created_at_ms,
     updated_at_ms
-) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
 ON CONFLICT(thread_id) DO UPDATE SET
     goal_id = excluded.goal_id,
     objective = excluded.objective,
     status = excluded.status,
+    tool_namespace = excluded.tool_namespace,
     token_budget = excluded.token_budget,
     tokens_used = 0,
     time_used_seconds = 0,
@@ -98,6 +119,7 @@ RETURNING
     goal_id,
     objective,
     status,
+    tool_namespace,
     token_budget,
     tokens_used,
     time_used_seconds,
@@ -109,6 +131,7 @@ RETURNING
         .bind(goal_id)
         .bind(objective)
         .bind(status.as_str())
+        .bind(tool_namespace)
         .bind(token_budget)
         .bind(now_ms)
         .bind(now_ms)
@@ -125,6 +148,24 @@ RETURNING
         status: crate::ThreadGoalStatus,
         token_budget: Option<i64>,
     ) -> anyhow::Result<Option<crate::ThreadGoal>> {
+        self.insert_thread_goal_with_tool_namespace(
+            thread_id,
+            objective,
+            status,
+            None,
+            token_budget,
+        )
+        .await
+    }
+
+    async fn insert_thread_goal_with_tool_namespace(
+        &self,
+        thread_id: ThreadId,
+        objective: &str,
+        status: crate::ThreadGoalStatus,
+        tool_namespace: Option<String>,
+        token_budget: Option<i64>,
+    ) -> anyhow::Result<Option<crate::ThreadGoal>> {
         let goal_id = Uuid::new_v4().to_string();
         let now_ms = datetime_to_epoch_millis(Utc::now());
         let status = status_after_budget_limit(status, /*tokens_used*/ 0, token_budget);
@@ -135,18 +176,20 @@ INSERT INTO thread_goals (
     goal_id,
     objective,
     status,
+    tool_namespace,
     token_budget,
     tokens_used,
     time_used_seconds,
     created_at_ms,
     updated_at_ms
-) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
 ON CONFLICT(thread_id) DO NOTHING
 RETURNING
     thread_id,
     goal_id,
     objective,
     status,
+    tool_namespace,
     token_budget,
     tokens_used,
     time_used_seconds,
@@ -158,6 +201,7 @@ RETURNING
         .bind(goal_id)
         .bind(objective)
         .bind(status.as_str())
+        .bind(tool_namespace)
         .bind(token_budget)
         .bind(now_ms)
         .bind(now_ms)
@@ -308,6 +352,38 @@ WHERE thread_id = ?
                 }
             }
         };
+
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+
+        self.get_thread_goal(thread_id).await
+    }
+
+    pub async fn update_thread_goal_tool_namespace(
+        &self,
+        thread_id: ThreadId,
+        tool_namespace: &str,
+        expected_goal_id: Option<&str>,
+    ) -> anyhow::Result<Option<crate::ThreadGoal>> {
+        let now_ms = datetime_to_epoch_millis(Utc::now());
+        let result = sqlx::query(
+            r#"
+UPDATE thread_goals
+SET
+    tool_namespace = ?,
+    updated_at_ms = ?
+WHERE thread_id = ?
+  AND (? IS NULL OR goal_id = ?)
+            "#,
+        )
+        .bind(tool_namespace)
+        .bind(now_ms)
+        .bind(thread_id.to_string())
+        .bind(expected_goal_id)
+        .bind(expected_goal_id)
+        .execute(self.pool.as_ref())
+        .await?;
 
         if result.rows_affected() == 0 {
             return Ok(None);
@@ -476,6 +552,7 @@ RETURNING
     goal_id,
     objective,
     status,
+    tool_namespace,
     token_budget,
     tokens_used,
     time_used_seconds,
@@ -894,6 +971,48 @@ mod tests {
             ..accounted
         };
         assert_eq!(expected, updated);
+    }
+
+    #[tokio::test]
+    async fn usage_accounting_preserves_tool_namespace() {
+        let runtime = test_runtime().await;
+        let thread_id = test_thread_id();
+        upsert_test_thread(&runtime, thread_id).await;
+        let original = runtime
+            .thread_goals()
+            .replace_thread_goal_with_tool_namespace(
+                thread_id,
+                "book the flight",
+                crate::ThreadGoalStatus::Active,
+                Some("airline_book_flight".to_string()),
+                /*token_budget*/ None,
+            )
+            .await
+            .expect("goal replacement should succeed");
+
+        let outcome = runtime
+            .thread_goals()
+            .account_thread_goal_usage(
+                thread_id,
+                /*time_delta_seconds*/ 7,
+                /*token_delta*/ 5,
+                GoalAccountingMode::ActiveOnly,
+                /*expected_goal_id*/ None,
+            )
+            .await
+            .expect("usage accounting should succeed");
+        let GoalAccountingOutcome::Updated(accounted) = outcome else {
+            panic!("active goal should account usage");
+        };
+
+        let expected = crate::ThreadGoal {
+            tokens_used: 5,
+            time_used_seconds: 7,
+            updated_at: accounted.updated_at,
+            ..original
+        };
+        assert_eq!(expected, accounted);
+        assert_eq!(Some("airline_book_flight".to_string()), accounted.tool_namespace);
     }
 
     #[tokio::test]

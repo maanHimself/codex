@@ -3109,6 +3109,7 @@ mod tests {
             thread_id: "thr_123".to_string(),
             objective: "ship goal mode".to_string(),
             status: v2::ThreadGoalStatus::Active,
+            tool_namespace: Some("ship_goal".to_string()),
             token_budget: Some(10_000),
             tokens_used: 123,
             time_used_seconds: 45,

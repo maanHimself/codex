@@ -710,6 +710,8 @@ pub struct ThreadGoal {
     pub thread_id: String,
     pub objective: String,
     pub status: ThreadGoalStatus,
+    #[ts(type = "string | null")]
+    pub tool_namespace: Option<String>,
     #[ts(type = "number | null")]
     pub token_budget: Option<i64>,
     #[ts(type = "number")]
@@ -728,6 +730,7 @@ impl From<codex_protocol::protocol::ThreadGoal> for ThreadGoal {
             thread_id: value.thread_id.to_string(),
             objective: value.objective,
             status: value.status.into(),
+            tool_namespace: value.tool_namespace,
             token_budget: value.token_budget,
             tokens_used: value.tokens_used,
             time_used_seconds: value.time_used_seconds,
@@ -746,6 +749,8 @@ pub struct ThreadGoalSetParams {
     pub objective: Option<String>,
     #[ts(optional = nullable)]
     pub status: Option<ThreadGoalStatus>,
+    #[ts(optional = nullable)]
+    pub tool_namespace: Option<String>,
     #[serde(
         default,
         deserialize_with = "crate::protocol::serde_helpers::deserialize_double_option",

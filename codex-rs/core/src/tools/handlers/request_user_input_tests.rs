@@ -22,9 +22,7 @@ async fn multi_agent_v2_request_user_input_rejects_subagent_threads() {
         agent_role: None,
     });
 
-    let result = RequestUserInputHandler {
-        available_modes: Vec::new(),
-    }
+    let result = RequestUserInputHandler
     .handle(ToolInvocation {
         session: Arc::new(session),
         turn: Arc::new(turn),
@@ -35,21 +33,7 @@ async fn multi_agent_v2_request_user_input_rejects_subagent_threads() {
         source: crate::tools::context::ToolCallSource::Direct,
         payload: ToolPayload::Function {
             arguments: json!({
-                "questions": [{
-                    "header": "Hdr",
-                    "question": "Pick one",
-                    "id": "pick_one",
-                    "options": [
-                        {
-                            "label": "A",
-                            "description": "A"
-                        },
-                        {
-                            "label": "B",
-                            "description": "B"
-                        }
-                    ]
-                }]
+                "question": "Pick one"
             })
             .to_string(),
         },

@@ -577,6 +577,7 @@ fn test_tool_runtime(session: Arc<Session>, turn_context: Arc<TurnContext>) -> T
             discoverable_tools: None,
             extension_tool_executors: Vec::new(),
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: None,
         },
     ));
     let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -8574,6 +8575,7 @@ async fn interrupt_accounts_active_goal_without_pausing() -> anyhow::Result<()> 
         SetGoalRequest {
             objective: Some("Keep improving the benchmark".to_string()),
             status: None,
+            tool_namespace: None,
             token_budget: None,
         },
     )
@@ -8615,6 +8617,7 @@ async fn shutdown_without_active_turn_keeps_active_goal_active() -> anyhow::Resu
         SetGoalRequest {
             objective: Some("Keep improving the benchmark".to_string()),
             status: None,
+            tool_namespace: None,
             token_budget: None,
         },
     )
@@ -8938,6 +8941,7 @@ async fn budget_limited_accounting_steers_active_turn_without_aborting() -> anyh
         SetGoalRequest {
             objective: Some("Keep improving the benchmark".to_string()),
             status: None,
+            tool_namespace: None,
             token_budget: Some(Some(10)),
         },
     )
@@ -9045,6 +9049,7 @@ async fn usage_limit_runtime_stops_active_goal_and_prevents_idle_continuation() 
         SetGoalRequest {
             objective: Some("Keep improving the benchmark".to_string()),
             status: None,
+            tool_namespace: None,
             token_budget: Some(Some(50)),
         },
     )
@@ -9095,6 +9100,7 @@ async fn external_goal_mutation_accounts_active_turn_before_status_change() -> a
         SetGoalRequest {
             objective: Some("Keep improving the benchmark".to_string()),
             status: None,
+            tool_namespace: None,
             token_budget: None,
         },
     )
@@ -9741,6 +9747,7 @@ async fn fatal_tool_error_stops_turn_and_reports_error() {
             discoverable_tools: None,
             extension_tool_executors: Vec::new(),
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: None,
         },
     );
     let item = ResponseItem::CustomToolCall {

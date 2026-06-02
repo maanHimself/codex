@@ -136,9 +136,17 @@ impl ThreadGoalRequestProcessor {
         };
         let status = params.status.map(thread_goal_status_to_state);
         let objective = params.objective.as_deref().map(str::trim);
+        let tool_namespace = params.tool_namespace.as_deref().map(str::trim);
 
         if let Some(objective) = objective {
             validate_thread_goal_objective(objective).map_err(invalid_request)?;
+        }
+        if let Some(tool_namespace) = tool_namespace
+            && tool_namespace.is_empty()
+        {
+            return Err(invalid_request(
+                "goal toolNamespace must not be empty when provided",
+            ));
         }
         if objective.is_some() || params.token_budget.is_some() {
             validate_goal_budget(params.token_budget.flatten()).map_err(invalid_request)?;
@@ -181,10 +189,11 @@ impl ThreadGoalRequestProcessor {
                 let previous_status = ExternalGoalPreviousStatus::NewGoal;
                 state_db
                     .thread_goals()
-                    .replace_thread_goal(
+                    .replace_thread_goal_with_tool_namespace(
                         thread_id,
                         objective,
                         status.unwrap_or(codex_state::ThreadGoalStatus::Active),
+                        tool_namespace.map(str::to_string),
                         params.token_budget.flatten(),
                     )
                     .await
@@ -222,6 +231,26 @@ impl ThreadGoalRequestProcessor {
                 .map(|goal| (goal, previous_status))
         })
         .map_err(|err| invalid_request(err.to_string()))?;
+        let goal = if let Some(tool_namespace) = tool_namespace {
+            state_db
+                .thread_goals()
+                .update_thread_goal_tool_namespace(
+                    thread_id,
+                    tool_namespace,
+                    Some(goal.goal_id.as_str()),
+                )
+                .await
+                .and_then(|goal| {
+                    goal.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "cannot update goal namespace for thread {thread_id}: no goal exists"
+                        )
+                    })
+                })
+                .map_err(|err| invalid_request(err.to_string()))?
+        } else {
+            goal
+        };
         if should_set_thread_preview
             && let Err(err) = state_db
                 .set_thread_preview_if_empty(thread_id, goal.objective.as_str())
@@ -485,6 +514,7 @@ pub(super) fn api_thread_goal_from_state(goal: codex_state::ThreadGoal) -> Threa
         thread_id: goal.thread_id.to_string(),
         objective: goal.objective,
         status: thread_goal_status_from_state(goal.status),
+        tool_namespace: goal.tool_namespace,
         token_budget: goal.token_budget,
         tokens_used: goal.tokens_used,
         time_used_seconds: goal.time_used_seconds,

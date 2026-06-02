@@ -116,6 +116,7 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
             discoverable_tools: None,
             extension_tool_executors: Vec::new(),
             dynamic_tools: turn.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: None,
         },
     );
 
@@ -196,6 +197,7 @@ async fn mcp_parallel_support_uses_handler_data() -> anyhow::Result<()> {
             discoverable_tools: None,
             extension_tool_executors: Vec::new(),
             dynamic_tools: turn.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: None,
         },
     );
 
@@ -231,6 +233,7 @@ async fn tools_without_handlers_do_not_support_parallel() -> anyhow::Result<()> 
             discoverable_tools: None,
             extension_tool_executors: Vec::new(),
             dynamic_tools: turn.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: None,
         },
     );
 
@@ -283,12 +286,86 @@ async fn specs_filter_deferred_dynamic_tools() -> anyhow::Result<()> {
             discoverable_tools: None,
             extension_tool_executors: Vec::new(),
             dynamic_tools: &dynamic_tools,
+            active_dynamic_tool_namespace: Some("codex_app".to_string()),
         },
     );
 
     assert_eq!(
         namespace_function_names(&router.model_visible_specs(), "codex_app"),
         vec![visible_tool.to_string()]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_tool_namespaces_are_gated_by_active_goal_namespace() -> anyhow::Result<()> {
+    let (_, turn) = make_session_and_context().await;
+    let dynamic_tools = vec![
+        DynamicToolSpec {
+            namespace: Some("global".to_string()),
+            name: "start_booking".to_string(),
+            description: "Start booking.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false,
+            }),
+            defer_loading: false,
+        },
+        DynamicToolSpec {
+            namespace: Some("airline_book_flight".to_string()),
+            name: "get_user_details".to_string(),
+            description: "Get user details.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false,
+            }),
+            defer_loading: false,
+        },
+        DynamicToolSpec {
+            namespace: Some("refund_order".to_string()),
+            name: "refund_payment".to_string(),
+            description: "Refund payment.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false,
+            }),
+            defer_loading: false,
+        },
+    ];
+
+    let router = ToolRouter::from_turn_context(
+        &turn,
+        ToolRouterParams {
+            deferred_mcp_tools: None,
+            mcp_tools: None,
+            discoverable_tools: None,
+            extension_tool_executors: Vec::new(),
+            dynamic_tools: &dynamic_tools,
+            active_dynamic_tool_namespace: Some("airline_book_flight".to_string()),
+        },
+    );
+
+    assert_eq!(
+        namespace_function_names(&router.model_visible_specs(), "global"),
+        vec!["start_booking".to_string()]
+    );
+    assert_eq!(
+        namespace_function_names(&router.model_visible_specs(), "airline_book_flight"),
+        vec!["get_user_details".to_string()]
+    );
+    assert_eq!(
+        namespace_function_names(&router.model_visible_specs(), "refund_order"),
+        Vec::<String>::new()
+    );
+
+    assert!(
+        router
+            .registered_tool_names_for_test()
+            .contains(&ToolName::namespaced("refund_order", "refund_payment"))
     );
 
     Ok(())
@@ -344,6 +421,7 @@ async fn extension_tool_executors_are_model_visible_and_dispatchable() -> anyhow
             discoverable_tools: None,
             extension_tool_executors: extension_tool_executors(&session),
             dynamic_tools: turn.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: None,
         },
     );
 

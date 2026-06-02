@@ -46,6 +46,14 @@ pub use codex_tools::ToolExposure;
 /// Implementers provide the shared `ToolExecutor` behavior plus optional
 /// core-owned metadata for hooks, telemetry, tool search, and argument diffs.
 pub(crate) trait CoreToolRuntime: ToolExecutor<ToolInvocation> {
+    /// Namespace for dynamic tools supplied by the app-server runtime.
+    ///
+    /// Codex uses this only for model-visibility planning. Dispatch remains
+    /// registered for every dynamic tool so completed calls can route normally.
+    fn dynamic_tool_namespace(&self) -> Option<&str> {
+        None
+    }
+
     fn search_info(&self) -> Option<ToolSearchInfo> {
         None
     }

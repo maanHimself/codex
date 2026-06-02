@@ -49,6 +49,7 @@ use tokio::sync::SemaphorePermit;
 pub(crate) struct SetGoalRequest {
     pub(crate) objective: Option<String>,
     pub(crate) status: Option<ThreadGoalStatus>,
+    pub(crate) tool_namespace: Option<String>,
     pub(crate) token_budget: Option<Option<i64>>,
 }
 
@@ -444,11 +445,22 @@ impl Session {
         let SetGoalRequest {
             objective,
             status,
+            tool_namespace,
             token_budget,
         } = request;
         validate_goal_budget(token_budget.flatten())?;
         let state_db = self.require_state_db_for_thread_goals().await?;
         let objective = objective.map(|objective| objective.trim().to_string());
+        let tool_namespace = match tool_namespace {
+            Some(tool_namespace) => {
+                let tool_namespace = tool_namespace.trim().to_string();
+                if tool_namespace.is_empty() {
+                    anyhow::bail!("goal toolNamespace must not be empty when provided");
+                }
+                Some(tool_namespace)
+            }
+            None => None,
+        };
         if let Some(objective) = objective.as_deref()
             && let Err(err) = validate_thread_goal_objective(objective)
         {
@@ -492,12 +504,13 @@ impl Session {
                 replacing_goal = true;
                 state_db
                     .thread_goals()
-                    .replace_thread_goal(
+                    .replace_thread_goal_with_tool_namespace(
                         self.conversation_id,
                         objective,
                         status
                             .map(state_goal_status_from_protocol)
                             .unwrap_or(codex_state::ThreadGoalStatus::Active),
+                        tool_namespace.clone(),
                         token_budget.flatten(),
                     )
                     .await?
@@ -528,6 +541,24 @@ impl Session {
                         self.conversation_id
                     )
                 })?
+        };
+        let goal = if let Some(tool_namespace) = tool_namespace.as_deref() {
+            state_db
+                .thread_goals()
+                .update_thread_goal_tool_namespace(
+                    self.conversation_id,
+                    tool_namespace,
+                    Some(goal.goal_id.as_str()),
+                )
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "cannot update goal namespace for thread {}: no goal exists",
+                        self.conversation_id
+                    )
+                })?
+        } else {
+            goal
         };
 
         if objective.is_some() {
@@ -1609,6 +1640,7 @@ pub(crate) fn protocol_goal_from_state(goal: codex_state::ThreadGoal) -> ThreadG
         thread_id: goal.thread_id,
         objective: goal.objective,
         status: protocol_goal_status_from_state(goal.status),
+        tool_namespace: goal.tool_namespace,
         token_budget: goal.token_budget,
         tokens_used: goal.tokens_used,
         time_used_seconds: goal.time_used_seconds,
@@ -1721,6 +1753,7 @@ mod tests {
             thread_id: ThreadId::new(),
             objective: "finish the stack".to_string(),
             status: ThreadGoalStatus::Active,
+            tool_namespace: None,
             token_budget: Some(10_000),
             tokens_used: 1_234,
             time_used_seconds: 56,
@@ -1748,6 +1781,7 @@ mod tests {
             thread_id: ThreadId::new(),
             objective: "finish the stack".to_string(),
             status: ThreadGoalStatus::BudgetLimited,
+            tool_namespace: None,
             token_budget: Some(10_000),
             tokens_used: 10_100,
             time_used_seconds: 56,
@@ -1770,6 +1804,7 @@ mod tests {
             thread_id: ThreadId::new(),
             objective: "finish the revised stack".to_string(),
             status: ThreadGoalStatus::Active,
+            tool_namespace: None,
             token_budget: Some(10_000),
             tokens_used: 1_234,
             time_used_seconds: 56,
@@ -1819,6 +1854,7 @@ mod tests {
             thread_id: ThreadId::new(),
             objective: objective.to_string(),
             status: ThreadGoalStatus::Active,
+            tool_namespace: None,
             token_budget: None,
             tokens_used: 0,
             time_used_seconds: 0,
@@ -1829,6 +1865,7 @@ mod tests {
             thread_id: ThreadId::new(),
             objective: objective.to_string(),
             status: ThreadGoalStatus::BudgetLimited,
+            tool_namespace: None,
             token_budget: Some(10_000),
             tokens_used: 10_100,
             time_used_seconds: 56,
@@ -1839,6 +1876,7 @@ mod tests {
             thread_id: ThreadId::new(),
             objective: objective.to_string(),
             status: ThreadGoalStatus::Active,
+            tool_namespace: None,
             token_budget: Some(10_000),
             tokens_used: 1_000,
             time_used_seconds: 56,

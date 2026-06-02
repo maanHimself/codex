@@ -520,7 +520,7 @@ Experimental: use `memory/reset` to clear local memory artifacts and sqlite-back
 
 ### Example: Set and update a thread goal
 
-Use `thread/goal/set` to create or update the current goal for a materialized thread. Clients can set `budgetLimited` when they stop because a token budget is exhausted or nearly exhausted, `blocked` when progress is waiting on outside intervention, and `usageLimited` when usage availability stops further work. The system also sets `budgetLimited` when accounting crosses a configured token budget and `usageLimited` when a turn ends on a hard usage-limit error.
+Use `thread/goal/set` to create or update the current goal for a materialized thread. Clients can set `toolNamespace` to make a matching non-`global` dynamic tool namespace visible while the goal is active. Status-only updates preserve the existing namespace. Clients can set `budgetLimited` when they stop because a token budget is exhausted or nearly exhausted, `blocked` when progress is waiting on outside intervention, and `usageLimited` when usage availability stops further work. The system also sets `budgetLimited` when accounting crosses a configured token budget and `usageLimited` when a turn ends on a hard usage-limit error.
 
 ```json
 { "method": "thread/goal/set", "id": 27, "params": {
@@ -532,6 +532,7 @@ Use `thread/goal/set` to create or update the current goal for a materialized th
     "threadId": "thr_123",
     "objective": "Keep improving the benchmark until p95 latency is under 120ms",
     "status": "active",
+    "toolNamespace": null,
     "tokenBudget": 200000,
     "tokensUsed": 0,
     "timeUsedSeconds": 0,
@@ -542,6 +543,7 @@ Use `thread/goal/set` to create or update the current goal for a materialized th
     "threadId": "thr_123",
     "objective": "Keep improving the benchmark until p95 latency is under 120ms",
     "status": "active",
+    "toolNamespace": null,
     "tokenBudget": 200000,
     "tokensUsed": 0,
     "timeUsedSeconds": 0,
@@ -559,6 +561,7 @@ Use `thread/goal/set` to create or update the current goal for a materialized th
     "threadId": "thr_123",
     "objective": "Keep improving the benchmark until p95 latency is under 120ms",
     "status": "blocked",
+    "toolNamespace": null,
     "tokenBudget": 200000,
     "tokensUsed": 10000,
     "timeUsedSeconds": 60,

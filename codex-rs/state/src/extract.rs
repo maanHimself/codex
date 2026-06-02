@@ -275,6 +275,7 @@ mod tests {
                     thread_id: metadata.id,
                     objective: "optimize the benchmark".to_string(),
                     status: ThreadGoalStatus::Active,
+                    tool_namespace: None,
                     token_budget: None,
                     tokens_used: 0,
                     time_used_seconds: 0,

@@ -43,6 +43,7 @@ struct ToolPlanInputs {
     discoverable_tools: Option<Vec<DiscoverableTool>>,
     extension_tool_executors: Vec<Arc<dyn ToolExecutor<ExtensionToolCall>>>,
     dynamic_tools: Vec<DynamicToolSpec>,
+    active_dynamic_tool_namespace: Option<String>,
 }
 
 struct ToolPlanProbe {
@@ -183,6 +184,7 @@ async fn probe_with(
             discoverable_tools: inputs.discoverable_tools,
             extension_tool_executors: inputs.extension_tool_executors,
             dynamic_tools: inputs.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace: inputs.active_dynamic_tool_namespace,
         },
     );
     ToolPlanProbe::from_router(router)
@@ -378,7 +380,7 @@ fn apply_patch_accepts_environment_id(spec: &ToolSpec) -> bool {
 }
 
 #[tokio::test]
-async fn request_user_input_tool_respects_experimental_config_gate() {
+async fn request_user_input_tool_is_always_registered() {
     let enabled = probe(|_| {}).await;
     enabled.assert_visible_contains(&["request_user_input"]);
     enabled.assert_registered_contains(&["request_user_input"]);
@@ -389,8 +391,8 @@ async fn request_user_input_tool_respects_experimental_config_gate() {
         });
     })
     .await;
-    disabled.assert_visible_lacks(&["request_user_input"]);
-    disabled.assert_registered_lacks(&["request_user_input"]);
+    disabled.assert_visible_contains(&["request_user_input"]);
+    disabled.assert_registered_contains(&["request_user_input"]);
 }
 
 #[tokio::test]
@@ -715,6 +717,7 @@ async fn code_mode_only_exposes_code_executor_and_hides_nested_tools() {
             "lookup",
             /*defer_loading*/ false,
         )],
+        active_dynamic_tool_namespace: Some("codex_app".to_string()),
         ..ToolPlanInputs::default()
     };
     let plain = probe_with(|_| {}, input).await;
@@ -737,6 +740,7 @@ async fn code_mode_only_exposes_code_executor_and_hides_nested_tools() {
                 "lookup",
                 /*defer_loading*/ false,
             )],
+            active_dynamic_tool_namespace: Some("codex_app".to_string()),
             ..ToolPlanInputs::default()
         },
     )

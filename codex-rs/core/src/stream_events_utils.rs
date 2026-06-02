@@ -18,10 +18,12 @@ use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolRouter;
+use crate::tools::handlers::request_user_input_spec::REQUEST_USER_INPUT_TOOL_NAME;
 use codex_memories_read::citations::parse_memory_citation;
 use codex_memories_read::citations::thread_ids_from_memory_citation;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
+use codex_protocol::models::ContentItem;
 use codex_protocol::memory_citation::MemoryCitation;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
@@ -32,6 +34,7 @@ use codex_rollout::state_db;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_stream_parser::strip_proposed_plan_blocks;
 use futures::Future;
+use serde::Deserialize;
 use tracing::debug;
 use tracing::instrument;
 use tracing::warn;
@@ -322,6 +325,45 @@ pub(crate) struct HandleOutputCtx {
     pub cancellation_token: CancellationToken,
 }
 
+#[derive(Deserialize)]
+struct RequestUserInputMessageArgs {
+    question: String,
+}
+
+fn request_user_input_message_from_function_call(item: &ResponseItem) -> Result<Option<ResponseItem>> {
+    let ResponseItem::FunctionCall {
+        name,
+        arguments,
+        call_id,
+        ..
+    } = item
+    else {
+        return Ok(None);
+    };
+    if name.as_str() != REQUEST_USER_INPUT_TOOL_NAME {
+        return Ok(None);
+    }
+
+    let args: RequestUserInputMessageArgs = serde_json::from_str(arguments).map_err(|err| {
+        CodexErr::InvalidRequest(format!(
+            "{REQUEST_USER_INPUT_TOOL_NAME} requires {{\"question\":\"...\"}} arguments: {err}"
+        ))
+    })?;
+    let question = args.question.trim().to_string();
+    if question.is_empty() {
+        return Err(CodexErr::InvalidRequest(format!(
+            "{REQUEST_USER_INPUT_TOOL_NAME} question must not be empty"
+        )));
+    }
+
+    Ok(Some(ResponseItem::Message {
+        id: Some(format!("{call_id}_message")),
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText { text: question }],
+        phase: Some(MessagePhase::FinalAnswer),
+    }))
+}
+
 async fn apply_turn_item_contributors(
     sess: &Session,
     turn_store: &ExtensionData,
@@ -410,6 +452,44 @@ pub(crate) async fn handle_output_item_done(
 ) -> Result<OutputItemResult> {
     let mut output = OutputItemResult::default();
     let plan_mode = ctx.turn_context.collaboration_mode.mode == ModeKind::Plan;
+
+    if let Some(message_item) = request_user_input_message_from_function_call(&item)? {
+        ctx.turn_context
+            .turn_metadata_state
+            .mark_user_input_requested_during_turn();
+
+        let finalized_turn_item = finalize_non_tool_response_item(
+            ctx.sess.as_ref(),
+            ctx.turn_context.as_ref(),
+            TurnItemContributorPolicy::Run(ctx.turn_store.as_ref()),
+            &message_item,
+            plan_mode,
+        )
+        .await;
+        let finalized_facts = finalized_turn_item
+            .as_ref()
+            .map(|finalized| finalized.facts.clone());
+        if let Some(finalized_turn_item) = finalized_turn_item {
+            if previously_active_item.is_none() {
+                ctx.sess
+                    .emit_turn_item_started(&ctx.turn_context, &finalized_turn_item.turn_item)
+                    .await;
+            }
+            ctx.sess
+                .emit_turn_item_completed(&ctx.turn_context, finalized_turn_item.turn_item)
+                .await;
+        }
+        record_completed_response_item_with_finalized_facts(
+            ctx.sess.as_ref(),
+            ctx.turn_context.as_ref(),
+            &message_item,
+            finalized_facts.as_ref(),
+        )
+        .await;
+
+        output.last_agent_message = finalized_facts.and_then(|facts| facts.last_agent_message);
+        return Ok(output);
+    }
 
     match ToolRouter::build_tool_call(item.clone()) {
         // The model emitted a tool call; log it, persist the item immediately, and queue the tool execution.

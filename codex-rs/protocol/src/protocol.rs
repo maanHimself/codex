@@ -3559,7 +3559,7 @@ pub enum ThreadGoalStatus {
     Complete,
 }
 
-pub const MAX_THREAD_GOAL_OBJECTIVE_CHARS: usize = 4_000;
+pub const MAX_THREAD_GOAL_OBJECTIVE_CHARS: usize = 12_000;
 
 pub fn validate_thread_goal_objective(value: &str) -> Result<(), String> {
     if value.is_empty() {
@@ -3580,6 +3580,9 @@ pub struct ThreadGoal {
     pub thread_id: ThreadId,
     pub objective: String,
     pub status: ThreadGoalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tool_namespace: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub token_budget: Option<i64>,

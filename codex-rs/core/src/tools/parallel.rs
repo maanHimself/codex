@@ -423,6 +423,7 @@ mod tests {
         let router = Arc::new(ToolRouter::from_parts(
             ToolRegistry::from_tools([handler]),
             Vec::new(),
+            None,
         ));
         let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
         let runtime = ToolCallRuntime::new(router, session, turn_context, tracker);
@@ -495,6 +496,7 @@ mod tests {
         let router = Arc::new(ToolRouter::from_parts(
             ToolRegistry::from_tools([handler]),
             Vec::new(),
+            None,
         ));
         let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
         let runtime = ToolCallRuntime::new(router, session, turn_context, tracker);

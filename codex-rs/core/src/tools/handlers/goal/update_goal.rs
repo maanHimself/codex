@@ -75,6 +75,7 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
                 SetGoalRequest {
                     objective: None,
                     status: Some(args.status),
+                    tool_namespace: None,
                     token_budget: None,
                 },
             )

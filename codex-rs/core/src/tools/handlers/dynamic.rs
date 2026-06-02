@@ -31,6 +31,7 @@ use tracing::warn;
 
 pub struct DynamicToolHandler {
     tool_name: ToolName,
+    namespace: Option<String>,
     spec: ToolSpec,
     exposure: ToolExposure,
     search_text: String,
@@ -50,6 +51,7 @@ impl DynamicToolHandler {
         };
         Some(Self {
             tool_name,
+            namespace: tool.namespace.clone(),
             spec,
             exposure: if tool.defer_loading {
                 ToolExposure::Deferred
@@ -127,6 +129,10 @@ impl ToolExecutor<ToolInvocation> for DynamicToolHandler {
 }
 
 impl CoreToolRuntime for DynamicToolHandler {
+    fn dynamic_tool_namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+
     fn search_info(&self) -> Option<ToolSearchInfo> {
         ToolSearchInfo::from_spec(
             self.search_text.clone(),

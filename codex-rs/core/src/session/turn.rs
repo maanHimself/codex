@@ -1113,6 +1113,20 @@ pub(crate) async fn built_tools(
     );
     let mcp_tools = has_mcp_servers.then_some(mcp_tool_exposure.direct_tools);
     let deferred_mcp_tools = mcp_tool_exposure.deferred_tools;
+    let active_dynamic_tool_namespace = if sess.enabled(Feature::Goals) {
+        match sess.get_thread_goal().await {
+            Ok(Some(goal)) if goal.status == codex_protocol::protocol::ThreadGoalStatus::Active => {
+                goal.tool_namespace
+            }
+            Ok(_) => None,
+            Err(err) => {
+                warn!("failed to read active goal before building tools: {err}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     Ok(Arc::new(ToolRouter::from_turn_context(
         turn_context,
         ToolRouterParams {
@@ -1121,6 +1135,7 @@ pub(crate) async fn built_tools(
             discoverable_tools,
             extension_tool_executors: extension_tool_executors(sess),
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
+            active_dynamic_tool_namespace,
         },
     )))
 }
@@ -1881,6 +1896,15 @@ async fn try_run_sampling_request(
                     last_agent_message = Some(agent_message);
                 }
                 needs_follow_up |= output_result.needs_follow_up;
+                if turn_context
+                    .turn_metadata_state
+                    .user_input_requested_during_turn()
+                {
+                    break Ok(SamplingRequestResult {
+                        needs_follow_up: false,
+                        last_agent_message,
+                    });
+                }
                 // todo: remove before stabilizing multi-agent v2
                 if preempt_for_mailbox_mail && sess.input_queue.has_pending_mailbox_items().await {
                     break Ok(SamplingRequestResult {

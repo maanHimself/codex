@@ -77,7 +77,6 @@ use codex_tools::can_request_original_image_detail;
 use codex_tools::collect_code_mode_exec_prompt_tool_definitions;
 use codex_tools::collect_request_plugin_install_entries;
 use codex_tools::default_namespace_description;
-use codex_tools::request_user_input_available_modes;
 use codex_tools::shell_command_backend_for_features;
 use codex_tools::shell_type_for_model_and_features;
 use std::collections::BTreeMap;
@@ -149,8 +148,9 @@ pub(crate) fn build_tool_router(
     turn_context: &TurnContext,
     params: ToolRouterParams<'_>,
 ) -> ToolRouter {
+    let active_dynamic_tool_namespace = params.active_dynamic_tool_namespace.clone();
     let (model_visible_specs, registry) = build_tool_specs_and_registry(turn_context, params);
-    ToolRouter::from_parts(registry, model_visible_specs)
+    ToolRouter::from_parts(registry, model_visible_specs, active_dynamic_tool_namespace)
 }
 
 fn build_tool_specs_and_registry(
@@ -163,6 +163,7 @@ fn build_tool_specs_and_registry(
         discoverable_tools,
         extension_tool_executors,
         dynamic_tools,
+        active_dynamic_tool_namespace,
     } = params;
     let default_agent_type_description =
         crate::agent::role::spawn_tool_spec::build(&std::collections::BTreeMap::new());
@@ -180,12 +181,17 @@ fn build_tool_specs_and_registry(
     add_tool_sources(&context, &mut planned_tools);
     append_tool_search_executor(&context, &mut planned_tools);
     prepend_code_mode_executors(&context, &mut planned_tools);
-    build_model_visible_specs_and_registry(turn_context, planned_tools)
+    build_model_visible_specs_and_registry(
+        turn_context,
+        planned_tools,
+        active_dynamic_tool_namespace.as_deref(),
+    )
 }
 
 fn build_model_visible_specs_and_registry(
     turn_context: &TurnContext,
     planned_tools: PlannedTools,
+    active_dynamic_tool_namespace: Option<&str>,
 ) -> (Vec<ToolSpec>, ToolRegistry) {
     let PlannedTools {
         runtimes,
@@ -199,7 +205,9 @@ fn build_model_visible_specs_and_registry(
             continue;
         }
         let exposure = runtime.exposure();
-        if exposure.is_direct() && !is_hidden_by_code_mode_only(turn_context, &tool_name, exposure)
+        if exposure.is_direct()
+            && !is_hidden_by_code_mode_only(turn_context, &tool_name, exposure)
+            && dynamic_tool_namespace_is_visible(runtime.as_ref(), active_dynamic_tool_namespace)
         {
             let spec = runtime.spec();
             specs.push(spec_for_model_request(turn_context, exposure, spec));
@@ -224,6 +232,17 @@ fn build_model_visible_specs_and_registry(
         .collect();
 
     (model_visible_specs, registry)
+}
+
+fn dynamic_tool_namespace_is_visible(
+    runtime: &dyn CoreToolRuntime,
+    active_dynamic_tool_namespace: Option<&str>,
+) -> bool {
+    match runtime.dynamic_tool_namespace() {
+        None => true,
+        Some("global") => true,
+        Some(namespace) => Some(namespace) == active_dynamic_tool_namespace,
+    }
 }
 
 fn spec_for_model_request(
@@ -600,11 +619,7 @@ fn add_core_utility_tools(context: &CoreToolPlanContext<'_>, planned_tools: &mut
         planned_tools.add(UpdateGoalHandler);
     }
 
-    if turn_context.config.experimental_request_user_input_enabled {
-        planned_tools.add(RequestUserInputHandler {
-            available_modes: request_user_input_available_modes(features),
-        });
-    }
+    planned_tools.add(RequestUserInputHandler);
 
     if features.enabled(Feature::RequestPermissionsTool) {
         planned_tools.add(RequestPermissionsHandler);

@@ -434,6 +434,11 @@ impl TurnMetadataState {
             .store(true, Ordering::Relaxed);
     }
 
+    pub(crate) fn user_input_requested_during_turn(&self) -> bool {
+        self.user_input_requested_during_turn
+            .load(Ordering::Relaxed)
+    }
+
     pub(crate) fn set_responsesapi_client_metadata(
         &self,
         responsesapi_client_metadata: HashMap<String, String>,

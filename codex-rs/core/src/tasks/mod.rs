@@ -749,6 +749,8 @@ impl Session {
             .await;
         self.emit_turn_stop_lifecycle(turn_context.extension_data.as_ref())
             .await;
+        let should_continue_goal_if_idle = last_agent_message.is_none()
+            && !turn_context.turn_metadata_state.user_input_requested_during_turn();
         if let Err(err) = self
             .goal_runtime_apply(GoalRuntimeEvent::TurnFinished {
                 turn_context: turn_context.as_ref(),
@@ -787,11 +789,13 @@ impl Session {
         if !cleared_active_turn {
             return;
         }
-        if let Err(err) = self
-            .goal_runtime_apply(GoalRuntimeEvent::MaybeContinueIfIdle)
-            .await
-        {
-            warn!("failed to apply goal runtime maybe-continue event: {err}");
+        if should_continue_goal_if_idle {
+            if let Err(err) = self
+                .goal_runtime_apply(GoalRuntimeEvent::MaybeContinueIfIdle)
+                .await
+            {
+                warn!("failed to apply goal runtime maybe-continue event: {err}");
+            }
         }
         self.emit_thread_idle_lifecycle_if_idle().await;
     }
