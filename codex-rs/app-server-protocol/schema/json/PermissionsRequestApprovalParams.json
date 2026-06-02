@@ -285,6 +285,12 @@
     "cwd": {
       "$ref": "#/definitions/AbsolutePathBuf"
     },
+    "environmentId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "itemId": {
       "type": "string"
     },
