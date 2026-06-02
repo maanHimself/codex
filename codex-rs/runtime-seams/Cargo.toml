@@ -1,0 +1,18 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "codex-runtime-seams"
+version.workspace = true
+
+[lib]
+name = "codex_runtime_seams"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+codex-protocol = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v7", "v4"] }

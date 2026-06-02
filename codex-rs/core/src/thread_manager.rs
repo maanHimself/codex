@@ -672,6 +672,55 @@ impl ThreadManager {
         persist_extended_history: bool,
         parent_trace: Option<W3cTraceContext>,
     ) -> CodexResult<NewThread> {
+        self.resume_thread_with_history_and_tools(
+            config,
+            initial_history,
+            auth_manager,
+            Vec::new(),
+            persist_extended_history,
+            parent_trace,
+        )
+        .await
+    }
+
+    pub async fn resume_thread_by_id_with_tools(
+        &self,
+        config: Config,
+        thread_id: ThreadId,
+        auth_manager: Arc<AuthManager>,
+        dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+        persist_extended_history: bool,
+        parent_trace: Option<W3cTraceContext>,
+    ) -> CodexResult<NewThread> {
+        let stored_thread = self
+            .state
+            .read_stored_thread(ReadThreadParams {
+                thread_id,
+                include_archived: true,
+                include_history: true,
+            })
+            .await?;
+        let initial_history = stored_thread_to_initial_history(stored_thread, None)?;
+        self.resume_thread_with_history_and_tools(
+            config,
+            initial_history,
+            auth_manager,
+            dynamic_tools,
+            persist_extended_history,
+            parent_trace,
+        )
+        .await
+    }
+
+    pub async fn resume_thread_with_history_and_tools(
+        &self,
+        config: Config,
+        initial_history: InitialHistory,
+        auth_manager: Arc<AuthManager>,
+        dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+        persist_extended_history: bool,
+        parent_trace: Option<W3cTraceContext>,
+    ) -> CodexResult<NewThread> {
         let environments = default_thread_environment_selections(
             self.state.environment_manager.as_ref(),
             &config.cwd,
@@ -687,7 +736,7 @@ impl ThreadManager {
             session_source,
             /*forked_from_thread_id*/ None,
             thread_source,
-            Vec::new(),
+            dynamic_tools,
             persist_extended_history,
             /*metrics_service_name*/ None,
             /*inherited_shell_snapshot*/ None,

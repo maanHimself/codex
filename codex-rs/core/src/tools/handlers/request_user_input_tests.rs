@@ -23,22 +23,22 @@ async fn multi_agent_v2_request_user_input_rejects_subagent_threads() {
     });
 
     let result = RequestUserInputHandler
-    .handle(ToolInvocation {
-        session: Arc::new(session),
-        turn: Arc::new(turn),
-        cancellation_token: tokio_util::sync::CancellationToken::new(),
-        tracker: Arc::new(Mutex::new(TurnDiffTracker::default())),
-        call_id: "call-1".to_string(),
-        tool_name: codex_tools::ToolName::plain(REQUEST_USER_INPUT_TOOL_NAME),
-        source: crate::tools::context::ToolCallSource::Direct,
-        payload: ToolPayload::Function {
-            arguments: json!({
-                "question": "Pick one"
-            })
-            .to_string(),
-        },
-    })
-    .await;
+        .handle(ToolInvocation {
+            session: Arc::new(session),
+            turn: Arc::new(turn),
+            cancellation_token: tokio_util::sync::CancellationToken::new(),
+            tracker: Arc::new(Mutex::new(TurnDiffTracker::default())),
+            call_id: "call-1".to_string(),
+            tool_name: codex_tools::ToolName::plain(REQUEST_USER_INPUT_TOOL_NAME),
+            source: crate::tools::context::ToolCallSource::Direct,
+            payload: ToolPayload::Function {
+                arguments: json!({
+                    "question": "Pick one"
+                })
+                .to_string(),
+            },
+        })
+        .await;
 
     let Err(err) = result else {
         panic!("sub-agent request_user_input should fail");

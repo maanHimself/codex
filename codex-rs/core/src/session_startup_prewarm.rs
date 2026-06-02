@@ -256,7 +256,7 @@ async fn schedule_startup_prewarm_inner(
         build_prompt_started_at.elapsed(),
         /*status*/ None,
     );
-    let window_id = session.services.model_client.current_window_id();
+    let window_id = session.services.model_runtime.current_window_id();
     let startup_turn_metadata_header = startup_turn_context
         .turn_metadata_state
         .current_header_value_for_prewarm(&window_id);

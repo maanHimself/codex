@@ -973,6 +973,26 @@ impl Session {
                 }).await;
             }
 
+            let model_client = ModelClient::new(
+                Some(Arc::clone(&auth_manager)),
+                session_id,
+                thread_id,
+                installation_id.clone(),
+                session_configuration.provider.clone(),
+                session_configuration.session_source.clone(),
+                config.model_verbosity,
+                config.features.enabled(Feature::EnableRequestCompression),
+                config.features.enabled(Feature::RuntimeMetrics),
+                Self::build_model_client_beta_features_header(config.as_ref()),
+                attestation_provider.clone(),
+            )
+            .with_prompt_cache_key_override(
+                crate::guardian::prompt_cache_key_override_for_review_session(
+                    &session_configuration.session_source,
+                    session_configuration.forked_from_thread_id,
+                ),
+            );
+
             let services = SessionServices {
                 // Initialize the MCP connection manager with an uninitialized
                 // instance. It will be replaced with one created via
@@ -1024,25 +1044,13 @@ impl Session {
                 live_thread: live_thread_init.as_ref().cloned(),
                 thread_store: Arc::clone(&thread_store),
                 attestation_provider: attestation_provider.clone(),
-                model_client: ModelClient::new(
-                    Some(Arc::clone(&auth_manager)),
-                    session_id,
-                    thread_id,
-                    installation_id.clone(),
-                    session_configuration.provider.clone(),
-                    session_configuration.session_source.clone(),
-                    config.model_verbosity,
-                    config.features.enabled(Feature::EnableRequestCompression),
-                    config.features.enabled(Feature::RuntimeMetrics),
-                    Self::build_model_client_beta_features_header(config.as_ref()),
-                    attestation_provider,
-                )
-                .with_prompt_cache_key_override(
-                    crate::guardian::prompt_cache_key_override_for_review_session(
-                        &session_configuration.session_source,
-                        session_configuration.forked_from_thread_id,
-                    ),
-                ),
+                model_runtime: Arc::new(crate::runtime::DefaultModelRuntime::new(
+                    model_client.clone(),
+                )),
+                event_sink: Arc::new(crate::runtime::NoopEventSink),
+                id_generator: Arc::new(crate::runtime::DefaultIdGenerator),
+                tool_execution_runtime: Arc::new(crate::runtime::DefaultToolExecutionRuntime),
+                model_client,
                 code_mode_service: crate::tools::code_mode::CodeModeService::new(),
                 environment_manager,
             };

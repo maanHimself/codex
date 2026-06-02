@@ -168,7 +168,6 @@ use tracing::info;
 use tracing::info_span;
 use tracing::instrument;
 use tracing::warn;
-use uuid::Uuid;
 
 use crate::client::ModelClient;
 use crate::codex_thread::ThreadConfigSnapshot;
@@ -663,7 +662,7 @@ impl Codex {
         op: Op,
         trace: Option<W3cTraceContext>,
     ) -> CodexResult<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = self.session.services.id_generator.submission_id();
         let sub = Submission {
             id: id.clone(),
             op,
@@ -681,7 +680,7 @@ impl Codex {
         client_user_message_id: Option<String>,
     ) -> CodexResult<String> {
         debug_assert!(matches!(op, Op::UserInput { .. }));
-        let id = Uuid::now_v7().to_string();
+        let id = self.session.services.id_generator.submission_id();
         let sub = Submission {
             id: id.clone(),
             op,
@@ -1769,6 +1768,9 @@ impl Session {
         self.services
             .rollout_thread_trace
             .record_protocol_event(&event.msg);
+        if let Err(err) = self.services.event_sink.record_event(&event).await {
+            warn!("runtime event sink failed: {err}");
+        }
         self.deliver_event_raw(event).await;
     }
 

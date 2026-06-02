@@ -12,13 +12,16 @@ fn request_user_input_tool_includes_question_schema() {
             description: "Ask the user to choose.".to_string(),
             strict: false,
             defer_loading: None,
-            parameters: JsonSchema::object(BTreeMap::from([(
+            parameters: JsonSchema::object(
+                BTreeMap::from([(
                     "question".to_string(),
                     JsonSchema::string(Some(
-                        "Question to ask the customer as a normal assistant message."
-                            .to_string(),
+                        "Question to ask the customer as a normal assistant message.".to_string(),
                     )),
-                )]), Some(vec!["question".to_string()]), Some(false.into())),
+                )]),
+                Some(vec!["question".to_string()]),
+                Some(false.into())
+            ),
             output_schema: None,
         })
     );

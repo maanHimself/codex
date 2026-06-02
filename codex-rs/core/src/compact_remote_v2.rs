@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::Prompt;
 use crate::ResponseStream;
-use crate::client::ModelClientSession;
 use crate::client_common::ResponseEvent;
 use crate::compact::CompactionAnalyticsAttempt;
 use crate::compact::InitialContextInjection;
@@ -18,6 +17,8 @@ use crate::hook_runtime::run_post_compact_hooks;
 use crate::hook_runtime::run_pre_compact_hooks;
 use crate::responses_retry::ResponsesStreamRequest;
 use crate::responses_retry::handle_retryable_response_stream_error;
+use crate::runtime::ModelStreamRequest;
+use crate::runtime::ModelTurnRuntime;
 use crate::session::session::Session;
 use crate::session::turn::built_tools;
 use crate::session::turn_context::TurnContext;
@@ -55,7 +56,7 @@ const MAX_REMOTE_COMPACTION_V2_STREAM_RETRIES: u64 = 2;
 pub(crate) async fn run_inline_remote_auto_compact_task(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     initial_context_injection: InitialContextInjection,
     reason: CompactionReason,
     phase: CompactionPhase,
@@ -100,7 +101,7 @@ pub(crate) async fn run_remote_compact_task(
 async fn run_remote_compact_task_inner(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
-    client_session: Option<&mut ModelClientSession>,
+    client_session: Option<&mut dyn ModelTurnRuntime>,
     initial_context_injection: InitialContextInjection,
     trigger: CompactionTrigger,
     reason: CompactionReason,
@@ -167,7 +168,7 @@ async fn run_remote_compact_task_inner(
 async fn run_remote_compact_task_inner_impl(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
-    client_session: Option<&mut ModelClientSession>,
+    client_session: Option<&mut dyn ModelTurnRuntime>,
     initial_context_injection: InitialContextInjection,
     compaction_metadata: CompactionTurnMetadata,
 ) -> CodexResult<()> {
@@ -217,7 +218,7 @@ async fn run_remote_compact_task_inner_impl(
         output_schema_strict: true,
     };
 
-    let window_id = sess.services.model_client.current_window_id();
+    let window_id = sess.services.model_runtime.current_window_id();
     let turn_metadata_header = turn_context
         .turn_metadata_state
         .current_header_value_for_compaction(&window_id, compaction_metadata);
@@ -229,11 +230,11 @@ async fn run_remote_compact_task_inner_impl(
     }));
 
     let mut owned_client_session;
-    let client_session = match client_session {
+    let client_session: &mut dyn ModelTurnRuntime = match client_session {
         Some(client_session) => client_session,
         None => {
-            owned_client_session = sess.services.model_client.new_session();
-            &mut owned_client_session
+            owned_client_session = sess.services.model_runtime.new_turn_runtime();
+            owned_client_session.as_mut()
         }
     };
     let compaction_output_result = run_remote_compaction_request_v2(
@@ -290,7 +291,7 @@ async fn run_remote_compact_task_inner_impl(
 async fn run_remote_compaction_request_v2(
     sess: &Session,
     turn_context: &TurnContext,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     prompt: &Prompt,
     turn_metadata_header: Option<&str>,
 ) -> CodexResult<(ResponseItem, String)> {
@@ -301,17 +302,19 @@ async fn run_remote_compaction_request_v2(
         .min(MAX_REMOTE_COMPACTION_V2_STREAM_RETRIES);
     let mut retries = 0;
     loop {
+        let inference_trace = InferenceTraceContext::disabled();
         let result = match client_session
-            .stream(
+            .stream(ModelStreamRequest {
                 prompt,
-                &turn_context.model_info,
-                &turn_context.session_telemetry,
-                turn_context.reasoning_effort,
-                turn_context.reasoning_summary,
-                turn_context.config.service_tier.clone(),
+                model_info: &turn_context.model_info,
+                session_telemetry: &turn_context.session_telemetry,
+                effort: turn_context.reasoning_effort,
+                summary: turn_context.reasoning_summary,
+                service_tier: turn_context.config.service_tier.clone(),
                 turn_metadata_header,
-                &InferenceTraceContext::disabled(),
-            )
+                inference_trace: &inference_trace,
+                cancellation_token: CancellationToken::new(),
+            })
             .await
         {
             Ok(stream) => collect_compaction_output(stream).await,

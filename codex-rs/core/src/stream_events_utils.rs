@@ -16,15 +16,15 @@ use crate::function_tool::FunctionCallError;
 use crate::parse_turn_item;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
+use crate::tools::handlers::request_user_input_spec::REQUEST_USER_INPUT_TOOL_NAME;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolRouter;
-use crate::tools::handlers::request_user_input_spec::REQUEST_USER_INPUT_TOOL_NAME;
 use codex_memories_read::citations::parse_memory_citation;
 use codex_memories_read::citations::thread_ids_from_memory_citation;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
-use codex_protocol::models::ContentItem;
 use codex_protocol::memory_citation::MemoryCitation;
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::MessagePhase;
@@ -330,7 +330,9 @@ struct RequestUserInputMessageArgs {
     question: String,
 }
 
-fn request_user_input_message_from_function_call(item: &ResponseItem) -> Result<Option<ResponseItem>> {
+fn request_user_input_message_from_function_call(
+    item: &ResponseItem,
+) -> Result<Option<ResponseItem>> {
     let ResponseItem::FunctionCall {
         name,
         arguments,

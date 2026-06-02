@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use crate::client::ModelClientSession;
+use crate::runtime::ModelTurnRuntime;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::util::backoff;
@@ -23,7 +23,7 @@ pub(crate) async fn handle_retryable_response_stream_error(
     retries: &mut u64,
     max_retries: u64,
     err: CodexErr,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     sess: &Session,
     turn_context: &TurnContext,
     request: ResponsesStreamRequest,
@@ -60,7 +60,7 @@ pub(crate) async fn handle_retryable_response_stream_error(
         // transient reconnect messages. In debug builds, keep full visibility for diagnosis.
         let report_error = retry_count > 1
             || cfg!(debug_assertions)
-            || !sess.services.model_client.responses_websocket_enabled();
+            || !sess.services.model_runtime.responses_websocket_enabled();
         if report_error {
             // Surface retry information to any UI/front-end so the user understands what is
             // happening instead of staring at a seemingly frozen screen.

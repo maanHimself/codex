@@ -4615,6 +4615,19 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         codex_exec_server::Environment::create_for_tests(/*exec_server_url*/ None)
             .expect("create environment"),
     );
+    let model_client = ModelClient::new(
+        Some(auth_manager.clone()),
+        thread_id.into(),
+        thread_id,
+        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        session_configuration.provider.clone(),
+        session_configuration.session_source.clone(),
+        config.model_verbosity,
+        config.features.enabled(Feature::EnableRequestCompression),
+        config.features.enabled(Feature::RuntimeMetrics),
+        Session::build_model_client_beta_features_header(config.as_ref()),
+        /*attestation_provider*/ None,
+    );
 
     let services = SessionServices {
         mcp_connection_manager: Arc::new(RwLock::new(
@@ -4671,19 +4684,13 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             /*state_db*/ None,
         )),
         attestation_provider: None,
-        model_client: ModelClient::new(
-            Some(auth_manager.clone()),
-            thread_id.into(),
-            thread_id,
-            /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
-            session_configuration.provider.clone(),
-            session_configuration.session_source.clone(),
-            config.model_verbosity,
-            config.features.enabled(Feature::EnableRequestCompression),
-            config.features.enabled(Feature::RuntimeMetrics),
-            Session::build_model_client_beta_features_header(config.as_ref()),
-            /*attestation_provider*/ None,
-        ),
+        model_runtime: Arc::new(crate::runtime::DefaultModelRuntime::new(
+            model_client.clone(),
+        )),
+        event_sink: Arc::new(crate::runtime::NoopEventSink),
+        id_generator: Arc::new(crate::runtime::DefaultIdGenerator),
+        tool_execution_runtime: Arc::new(crate::runtime::DefaultToolExecutionRuntime),
+        model_client,
         code_mode_service: crate::tools::code_mode::CodeModeService::new(),
         environment_manager: Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
     };
@@ -6458,6 +6465,19 @@ where
         codex_exec_server::Environment::create_for_tests(/*exec_server_url*/ None)
             .expect("create environment"),
     );
+    let model_client = ModelClient::new(
+        Some(Arc::clone(&auth_manager)),
+        thread_id.into(),
+        thread_id,
+        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        session_configuration.provider.clone(),
+        session_configuration.session_source.clone(),
+        config.model_verbosity,
+        config.features.enabled(Feature::EnableRequestCompression),
+        config.features.enabled(Feature::RuntimeMetrics),
+        Session::build_model_client_beta_features_header(config.as_ref()),
+        /*attestation_provider*/ None,
+    );
 
     let services = SessionServices {
         mcp_connection_manager: Arc::new(RwLock::new(
@@ -6514,19 +6534,13 @@ where
             state_db,
         )),
         attestation_provider: None,
-        model_client: ModelClient::new(
-            Some(Arc::clone(&auth_manager)),
-            thread_id.into(),
-            thread_id,
-            /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
-            session_configuration.provider.clone(),
-            session_configuration.session_source.clone(),
-            config.model_verbosity,
-            config.features.enabled(Feature::EnableRequestCompression),
-            config.features.enabled(Feature::RuntimeMetrics),
-            Session::build_model_client_beta_features_header(config.as_ref()),
-            /*attestation_provider*/ None,
-        ),
+        model_runtime: Arc::new(crate::runtime::DefaultModelRuntime::new(
+            model_client.clone(),
+        )),
+        event_sink: Arc::new(crate::runtime::NoopEventSink),
+        id_generator: Arc::new(crate::runtime::DefaultIdGenerator),
+        tool_execution_runtime: Arc::new(crate::runtime::DefaultToolExecutionRuntime),
+        model_client,
         code_mode_service: crate::tools::code_mode::CodeModeService::new(),
         environment_manager: Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
     };

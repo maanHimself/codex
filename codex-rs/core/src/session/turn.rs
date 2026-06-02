@@ -37,6 +37,8 @@ use crate::mentions::collect_tool_mentions_from_messages;
 use crate::plugins::build_plugin_injections;
 use crate::responses_retry::ResponsesStreamRequest;
 use crate::responses_retry::handle_retryable_response_stream_error;
+use crate::runtime::ModelStreamRequest;
+use crate::runtime::ModelTurnRuntime;
 use crate::session::PreviousTurnSettings;
 use crate::session::TurnInput;
 use crate::session::session::Session;
@@ -138,13 +140,16 @@ pub(crate) async fn run_turn(
     prewarmed_client_session: Option<ModelClientSession>,
     cancellation_token: CancellationToken,
 ) -> Option<String> {
-    let mut client_session =
-        prewarmed_client_session.unwrap_or_else(|| sess.services.model_client.new_session());
+    let mut client_session: Box<dyn ModelTurnRuntime> = match prewarmed_client_session {
+        Some(client_session) => Box::new(client_session),
+        None => sess.services.model_runtime.new_turn_runtime(),
+    };
     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
     // new user message are recorded. Estimate pending incoming items (context
     // diffs/full reinjection + user input) and trigger compaction preemptively
     // when they would push the thread over the compaction threshold.
-    if let Err(err) = run_pre_sampling_compact(&sess, &turn_context, &mut client_session).await {
+    if let Err(err) = run_pre_sampling_compact(&sess, &turn_context, client_session.as_mut()).await
+    {
         let error = err.to_codex_protocol_error();
         sess.emit_turn_error_lifecycle(turn_context.as_ref(), error.clone())
             .await;
@@ -237,7 +242,7 @@ pub(crate) async fn run_turn(
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
 
-        let window_id = sess.services.model_client.current_window_id();
+        let window_id = sess.services.model_runtime.current_window_id();
         let turn_metadata_header = turn_context
             .turn_metadata_state
             .current_header_value_for_model_request(&window_id);
@@ -246,7 +251,7 @@ pub(crate) async fn run_turn(
             Arc::clone(&turn_context),
             Arc::clone(&turn_extension_data),
             Arc::clone(&turn_diff_tracker),
-            &mut client_session,
+            client_session.as_mut(),
             turn_metadata_header.as_deref(),
             sampling_request_input.clone(),
             cancellation_token.child_token(),
@@ -291,7 +296,7 @@ pub(crate) async fn run_turn(
                     if let Err(err) = run_auto_compact(
                         &sess,
                         &turn_context,
-                        &mut client_session,
+                        client_session.as_mut(),
                         InitialContextInjection::BeforeLastUserMessage,
                         CompactionReason::ContextLimit,
                         CompactionPhase::MidTurn,
@@ -711,7 +716,7 @@ async fn auto_compact_token_status(
 async fn run_pre_sampling_compact(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
 ) -> CodexResult<()> {
     maybe_run_previous_model_inline_compact(sess, turn_context, client_session).await?;
     let token_status = auto_compact_token_status(sess.as_ref(), turn_context.as_ref()).await;
@@ -737,7 +742,7 @@ async fn run_pre_sampling_compact(
 async fn maybe_run_previous_model_inline_compact(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
 ) -> CodexResult<()> {
     let Some(previous_turn_settings) = sess.previous_turn_settings().await else {
         return Ok(());
@@ -789,7 +794,7 @@ async fn maybe_run_previous_model_inline_compact(
 async fn run_auto_compact(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     initial_context_injection: InitialContextInjection,
     reason: CompactionReason,
     phase: CompactionPhase,
@@ -928,7 +933,7 @@ async fn run_sampling_request(
     turn_context: Arc<TurnContext>,
     turn_store: Arc<codex_extension_api::ExtensionData>,
     turn_diff_tracker: SharedTurnDiffTracker,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     turn_metadata_header: Option<&str>,
     input: Vec<ResponseItem>,
     cancellation_token: CancellationToken,
@@ -1716,7 +1721,7 @@ async fn try_run_sampling_request(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
     turn_store: Arc<codex_extension_api::ExtensionData>,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     turn_metadata_header: Option<&str>,
     turn_diff_tracker: SharedTurnDiffTracker,
     prompt: &Prompt,
@@ -1736,19 +1741,19 @@ async fn try_run_sampling_request(
         turn_context.provider.info().name.as_str(),
     );
     let mut stream = client_session
-        .stream(
+        .stream(ModelStreamRequest {
             prompt,
-            &turn_context.model_info,
-            &turn_context.session_telemetry,
-            turn_context.reasoning_effort,
-            turn_context.reasoning_summary,
-            turn_context.config.service_tier.clone(),
+            model_info: &turn_context.model_info,
+            session_telemetry: &turn_context.session_telemetry,
+            effort: turn_context.reasoning_effort,
+            summary: turn_context.reasoning_summary,
+            service_tier: turn_context.config.service_tier.clone(),
             turn_metadata_header,
-            &inference_trace,
-        )
+            inference_trace: &inference_trace,
+            cancellation_token: cancellation_token.clone(),
+        })
         .instrument(trace_span!("stream_request"))
-        .or_cancel(&cancellation_token)
-        .await??;
+        .await?;
     let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
         FuturesOrdered::new();
     let mut needs_follow_up = false;

@@ -13,6 +13,7 @@ use tracing::instrument;
 use tracing::trace_span;
 
 use crate::function_tool::FunctionCallError;
+use crate::runtime::ToolExecutionRequest;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::AbortedToolOutput;
@@ -26,6 +27,7 @@ use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
+use serde_json::json;
 
 #[derive(Clone)]
 pub(crate) struct ToolCallRuntime {
@@ -65,17 +67,19 @@ impl ToolCallRuntime {
         call: ToolCall,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ResponseInputItem, CodexErr>> {
+        let request = Self::tool_execution_request(&call);
         let error_call = call.clone();
+        let runtime = Arc::clone(&self.session.services.tool_execution_runtime);
         let future =
             self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
-        async move {
+        let execute = Box::pin(async move {
             match future.await {
                 Ok(response) => Ok(response.into_response()),
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
                 Err(other) => Ok(Self::failure_response(error_call, other)),
             }
-        }
-        .in_current_span()
+        });
+        runtime.execute(request, execute).in_current_span()
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -181,6 +185,23 @@ impl ToolCallRuntime {
 impl ToolCallRuntime {
     fn tool_task_join_error(err: JoinError) -> FunctionCallError {
         FunctionCallError::Fatal(format!("tool task failed to receive: {err:?}"))
+    }
+
+    fn tool_execution_request(call: &ToolCall) -> ToolExecutionRequest {
+        let payload = match &call.payload {
+            ToolPayload::Function { arguments } => {
+                json!({ "type": "function", "arguments": arguments })
+            }
+            ToolPayload::ToolSearch { arguments } => {
+                json!({ "type": "tool_search", "arguments": arguments })
+            }
+            ToolPayload::Custom { input } => json!({ "type": "custom", "input": input }),
+        };
+        ToolExecutionRequest {
+            call_id: call.call_id.clone(),
+            tool_name: call.tool_name.to_string(),
+            payload,
+        }
     }
 
     fn failure_response(call: ToolCall, err: FunctionCallError) -> ResponseInputItem {

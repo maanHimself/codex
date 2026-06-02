@@ -749,8 +749,9 @@ impl Session {
             .await;
         self.emit_turn_stop_lifecycle(turn_context.extension_data.as_ref())
             .await;
-        let should_continue_goal_if_idle = last_agent_message.is_none()
-            && !turn_context.turn_metadata_state.user_input_requested_during_turn();
+        let should_continue_goal_if_idle = !turn_context
+            .turn_metadata_state
+            .user_input_requested_during_turn();
         if let Err(err) = self
             .goal_runtime_apply(GoalRuntimeEvent::TurnFinished {
                 turn_context: turn_context.as_ref(),

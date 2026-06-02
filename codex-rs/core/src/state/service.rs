@@ -11,6 +11,10 @@ use crate::exec_policy::ExecPolicyManager;
 use crate::guardian::GuardianRejection;
 use crate::guardian::GuardianRejectionCircuitBreaker;
 use crate::mcp::McpManager;
+use crate::runtime::EventSink;
+use crate::runtime::IdGenerator;
+use crate::runtime::ModelRuntime;
+use crate::runtime::ToolExecutionRuntime;
 use crate::tools::code_mode::CodeModeService;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::sandboxing::ApprovalStore;
@@ -77,6 +81,14 @@ pub(crate) struct SessionServices {
     pub(crate) attestation_provider: Option<Arc<dyn AttestationProvider>>,
     /// Session-scoped model client shared across turns.
     pub(crate) model_client: ModelClient,
+    /// Session-scoped model runtime seam. Defaults to the model client above.
+    pub(crate) model_runtime: Arc<dyn ModelRuntime>,
+    /// Event sink seam for durable embedding hosts.
+    pub(crate) event_sink: Arc<dyn EventSink>,
+    /// ID generator seam for durable embedding hosts.
+    pub(crate) id_generator: Arc<dyn IdGenerator>,
+    /// Tool execution seam for durable embedding hosts.
+    pub(crate) tool_execution_runtime: Arc<dyn ToolExecutionRuntime>,
     pub(crate) code_mode_service: CodeModeService,
     /// Shared process-level environment registry. Sessions carry an `Arc` handle so they can pass
     /// the same manager through child-thread spawn paths without reconstructing it.

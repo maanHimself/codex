@@ -2,12 +2,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::Prompt;
-use crate::client::ModelClientSession;
 use crate::client_common::ResponseEvent;
 use crate::hook_runtime::PostCompactHookOutcome;
 use crate::hook_runtime::PreCompactHookOutcome;
 use crate::hook_runtime::run_post_compact_hooks;
 use crate::hook_runtime::run_pre_compact_hooks;
+use crate::runtime::ModelStreamRequest;
+use crate::runtime::ModelTurnRuntime;
 #[cfg(test)]
 use crate::session::PreviousTurnSettings;
 use crate::session::session::Session;
@@ -40,6 +41,7 @@ use codex_utils_output_truncation::TruncationPolicy;
 use codex_utils_output_truncation::approx_token_count;
 use codex_utils_output_truncation::truncate_text;
 use futures::prelude::*;
+use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use codex_model_provider_info::ModelProviderInfo;
@@ -192,7 +194,7 @@ async fn run_compact_task_inner_impl(
 
     let max_retries = turn_context.provider.info().stream_max_retries();
     let mut retries = 0;
-    let mut client_session = sess.services.model_client.new_session();
+    let mut client_session = sess.services.model_runtime.new_turn_runtime();
     // Reuse one client session so turn-scoped state (sticky routing, websocket incremental
     // request tracking)
     // survives retries within this compact turn.
@@ -209,14 +211,14 @@ async fn run_compact_task_inner_impl(
             personality: turn_context.personality,
             ..Default::default()
         };
-        let window_id = sess.services.model_client.current_window_id();
+        let window_id = sess.services.model_runtime.current_window_id();
         let turn_metadata_header = turn_context
             .turn_metadata_state
             .current_header_value_for_compaction(&window_id, compaction_metadata);
         let attempt_result = drain_to_completed(
             &sess,
             turn_context.as_ref(),
-            &mut client_session,
+            client_session.as_mut(),
             turn_metadata_header.as_deref(),
             &prompt,
         )
@@ -540,23 +542,25 @@ fn build_compacted_history_with_limit(
 async fn drain_to_completed(
     sess: &Session,
     turn_context: &TurnContext,
-    client_session: &mut ModelClientSession,
+    client_session: &mut dyn ModelTurnRuntime,
     turn_metadata_header: Option<&str>,
     prompt: &Prompt,
 ) -> CodexResult<()> {
+    let inference_trace = InferenceTraceContext::disabled();
     let mut stream = client_session
-        .stream(
+        .stream(ModelStreamRequest {
             prompt,
-            &turn_context.model_info,
-            &turn_context.session_telemetry,
-            turn_context.reasoning_effort,
-            turn_context.reasoning_summary,
-            turn_context.config.service_tier.clone(),
+            model_info: &turn_context.model_info,
+            session_telemetry: &turn_context.session_telemetry,
+            effort: turn_context.reasoning_effort,
+            summary: turn_context.reasoning_summary,
+            service_tier: turn_context.config.service_tier.clone(),
             turn_metadata_header,
             // Rollout tracing currently models remote compaction only; local compaction streams
             // are left untraced until the reducer has a first-class local compaction lifecycle.
-            &InferenceTraceContext::disabled(),
-        )
+            inference_trace: &inference_trace,
+            cancellation_token: CancellationToken::new(),
+        })
         .await?;
     loop {
         let maybe_event = stream.next().await;
