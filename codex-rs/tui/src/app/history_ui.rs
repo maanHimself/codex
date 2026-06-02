@@ -1,4 +1,4 @@
-//! Terminal history and clear-screen UI helpers for the TUI app.
+//! Terminal history, desktop handoff, and clear-screen UI helpers for the TUI app.
 //!
 //! This module owns rendering the fresh session header, clearing inline or alternate-screen UI
 //! state, and resetting transcript-related app state after `/clear` or Ctrl-L.
@@ -15,6 +15,20 @@ impl App {
 
         self.chat_widget
             .add_info_message(format!("Opened {url} in your browser."), /*hint*/ None);
+    }
+
+    pub(super) fn open_desktop_thread(&mut self, thread_id: ThreadId) {
+        if let Err(err) = open_desktop_thread_url(&desktop_thread_url(thread_id)) {
+            self.chat_widget.add_error_message(format!(
+                "Failed to open this session in Codex Desktop: {err}. Install or launch Codex Desktop with `codex app` and try again."
+            ));
+            return;
+        }
+
+        self.chat_widget.add_info_message(
+            "Opened this session in Codex Desktop.".to_string(),
+            /*hint*/ None,
+        );
     }
 
     pub(super) fn clear_ui_header_lines_with_version(
@@ -97,5 +111,97 @@ impl App {
         self.initial_history_replay_buffer = None;
         self.backtrack = BacktrackState::default();
         self.backtrack_render_pending = false;
+    }
+}
+
+fn desktop_thread_url(thread_id: ThreadId) -> String {
+    format!("codex://threads/{thread_id}")
+}
+
+#[cfg(target_os = "macos")]
+fn open_desktop_thread_url(url: &str) -> Result<(), String> {
+    let status = std::process::Command::new("open")
+        .arg(url)
+        .status()
+        .map_err(|err| format!("failed to invoke `open`: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("`open {url}` exited with {status}"))
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn open_desktop_thread_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if !crate::clipboard_paste::is_probably_wsl() {
+        return Err("Codex Desktop is only available on macOS and Windows".to_string());
+    }
+
+    let output = std::process::Command::new("powershell.exe")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg(WINDOWS_DESKTOP_APP_LAUNCH_SCRIPT)
+        .arg(url)
+        .output()
+        .map_err(|err| format!("failed to launch Codex Desktop through PowerShell: {err}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        Err(format!(
+            "failed to launch Codex Desktop through PowerShell with {}",
+            output.status
+        ))
+    } else {
+        Err(stderr)
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+const WINDOWS_DESKTOP_APP_LAUNCH_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$installLocation = (Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue).InstallLocation
+if ([string]::IsNullOrWhiteSpace($installLocation)) {
+    Write-Error 'Codex Desktop package is not installed'
+    exit 1
+}
+
+$appDir = Join-Path $installLocation 'app'
+$exe = Join-Path $appDir 'Codex.exe'
+$app = Join-Path $appDir 'resources\app.asar'
+if (-not (Test-Path $exe)) {
+    Write-Error "Codex Desktop executable not found at $exe"
+    exit 1
+}
+if (-not (Test-Path $app)) {
+    Write-Error "Codex Desktop app bundle not found at $app"
+    exit 1
+}
+
+Start-Process -FilePath $exe -WorkingDirectory $appDir -ArgumentList @("""$app""", """$($args[0])""")
+"#;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn open_desktop_thread_url(_url: &str) -> Result<(), String> {
+    Err("Codex Desktop is only available on macOS and Windows".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_thread_url_targets_codex_threads_deep_link() {
+        let thread_id = ThreadId::new();
+
+        assert_eq!(
+            desktop_thread_url(thread_id),
+            format!("codex://threads/{thread_id}")
+        );
     }
 }
