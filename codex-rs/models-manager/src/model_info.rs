@@ -90,6 +90,7 @@ pub fn model_info_from_slug(slug: &str) -> ModelInfo {
         web_search_tool_type: WebSearchToolType::Text,
         truncation_policy: TruncationPolicyConfig::bytes(/*limit*/ 10_000),
         supports_parallel_tool_calls: false,
+        max_output_tokens: None,
         supports_image_detail_original: false,
         context_window: Some(272_000),
         max_context_window: Some(272_000),

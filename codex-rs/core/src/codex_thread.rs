@@ -358,6 +358,10 @@ impl CodexThread {
         self.codex.next_event().await
     }
 
+    pub fn try_next_event(&self) -> CodexResult<Option<Event>> {
+        self.codex.try_next_event()
+    }
+
     pub async fn agent_status(&self) -> AgentStatus {
         self.codex.agent_status().await
     }

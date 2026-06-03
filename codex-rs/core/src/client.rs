@@ -778,6 +778,7 @@ impl ModelClient {
             store: provider.is_azure_responses_endpoint(),
             stream: true,
             include,
+            max_output_tokens: model_info.max_output_tokens,
             service_tier,
             prompt_cache_key,
             text,

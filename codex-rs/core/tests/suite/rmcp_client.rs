@@ -1340,6 +1340,7 @@ async fn stdio_image_responses_are_sanitized_for_text_only_model() -> anyhow::Re
                 web_search_tool_type: Default::default(),
                 truncation_policy: TruncationPolicyConfig::bytes(/*limit*/ 10_000),
                 supports_parallel_tool_calls: false,
+                max_output_tokens: None,
                 supports_image_detail_original: false,
                 context_window: Some(272_000),
                 max_context_window: None,

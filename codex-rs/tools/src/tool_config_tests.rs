@@ -35,6 +35,7 @@ fn model_with_shell_type(shell_type: ConfigShellToolType) -> ModelInfo {
         web_search_tool_type: Default::default(),
         truncation_policy: TruncationPolicyConfig::tokens(/*limit*/ 1024),
         supports_parallel_tool_calls: true,
+        max_output_tokens: None,
         supports_image_detail_original: false,
         context_window: None,
         max_context_window: None,

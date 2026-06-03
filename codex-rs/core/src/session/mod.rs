@@ -735,6 +735,14 @@ impl Codex {
         Ok(event)
     }
 
+    pub fn try_next_event(&self) -> CodexResult<Option<Event>> {
+        match self.rx_event.try_recv() {
+            Ok(event) => Ok(Some(event)),
+            Err(async_channel::TryRecvError::Empty) => Ok(None),
+            Err(async_channel::TryRecvError::Closed) => Err(CodexErr::InternalAgentDied),
+        }
+    }
+
     pub async fn steer_input(
         &self,
         input: Vec<UserInput>,

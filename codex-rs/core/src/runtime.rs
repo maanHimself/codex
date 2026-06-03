@@ -272,6 +272,7 @@ impl CodexRuntimeHost {
             thread_id,
             thread,
             idle_rx: self.idle_tx.subscribe(),
+            pending_idle_status: None,
         }
     }
 }
@@ -280,6 +281,7 @@ pub struct CodexRuntimeThread {
     thread_id: ThreadId,
     thread: Arc<CodexThread>,
     idle_rx: broadcast::Receiver<String>,
+    pending_idle_status: Option<AgentStatus>,
 }
 
 pub enum CodexRuntimeLoopItem {
@@ -378,6 +380,15 @@ impl CodexRuntimeThread {
 
     pub async fn next_event_or_idle(&mut self) -> CodexResult<CodexRuntimeLoopItem> {
         loop {
+            if let Some(event) = self.thread.try_next_event()? {
+                return Ok(CodexRuntimeLoopItem::Event(event));
+            }
+            if let Some(status) = self.pending_idle_status.take() {
+                return Ok(CodexRuntimeLoopItem::ThreadIdle {
+                    thread_id: self.thread_id,
+                    status,
+                });
+            }
             tokio::select! {
                 event = self.thread.next_event() => {
                     return event.map(CodexRuntimeLoopItem::Event);
@@ -386,6 +397,10 @@ impl CodexRuntimeThread {
                     match idle {
                         Ok(thread_id) if thread_id == self.thread_id.to_string() => {
                             let status = self.thread.agent_status().await;
+                            if let Some(event) = self.thread.try_next_event()? {
+                                self.pending_idle_status = Some(status);
+                                return Ok(CodexRuntimeLoopItem::Event(event));
+                            }
                             return Ok(CodexRuntimeLoopItem::ThreadIdle {
                                 thread_id: self.thread_id,
                                 status,
