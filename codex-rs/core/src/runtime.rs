@@ -11,6 +11,7 @@ use codex_login::AuthManager;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
+use codex_protocol::dynamic_tools::DynamicToolResponse;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
@@ -20,6 +21,8 @@ use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::ThreadGoal;
+use codex_protocol::protocol::ThreadGoalStatus;
 use codex_protocol::user_input::UserInput;
 use codex_rollout_trace::InferenceTraceContext;
 use std::collections::BTreeMap;
@@ -33,6 +36,7 @@ use crate::client_common::Prompt;
 use crate::client_common::ResponseStream;
 use crate::codex_thread::CodexThread;
 use crate::config::Config;
+use crate::goals::SetGoalRequest;
 use crate::installation_id::resolve_installation_id;
 use crate::thread_manager::NewThread;
 use crate::thread_manager::ThreadManager;
@@ -325,6 +329,51 @@ impl CodexRuntimeThread {
             )
             .await
             .map_err(|err| CodexErr::InvalidRequest(format!("{err:?}")))
+    }
+
+    pub async fn submit_dynamic_tool_response(
+        &self,
+        call_id: String,
+        response: DynamicToolResponse,
+    ) -> CodexResult<String> {
+        self.thread
+            .submit(Op::DynamicToolResponse {
+                id: call_id,
+                response,
+            })
+            .await
+    }
+
+    pub async fn set_goal_for_turn(
+        &self,
+        turn_id: &str,
+        objective: String,
+        status: ThreadGoalStatus,
+        tool_namespace: Option<String>,
+    ) -> CodexResult<ThreadGoal> {
+        let turn_context = self
+            .thread
+            .codex
+            .session
+            .turn_context_for_sub_id(turn_id)
+            .await
+            .ok_or_else(|| {
+                CodexErr::InvalidRequest(format!("no active turn found for id {turn_id}"))
+            })?;
+        self.thread
+            .codex
+            .session
+            .set_thread_goal(
+                &turn_context,
+                SetGoalRequest {
+                    objective: Some(objective),
+                    status: Some(status),
+                    tool_namespace,
+                    token_budget: None,
+                },
+            )
+            .await
+            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))
     }
 
     pub async fn next_event_or_idle(&mut self) -> CodexResult<CodexRuntimeLoopItem> {

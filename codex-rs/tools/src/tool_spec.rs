@@ -2,6 +2,7 @@ use crate::FreeformTool;
 use crate::JsonSchema;
 use crate::LoadableToolSpec;
 use crate::ResponsesApiNamespace;
+use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use codex_protocol::config_types::WebSearchContextSize;
 use codex_protocol::config_types::WebSearchFilters as ConfigWebSearchFilters;
@@ -9,6 +10,7 @@ use codex_protocol::config_types::WebSearchUserLocation as ConfigWebSearchUserLo
 use codex_protocol::config_types::WebSearchUserLocationType;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 
 /// When serialized as JSON, this produces a valid "Tool" in the OpenAI
 /// Responses API.
@@ -79,10 +81,35 @@ pub fn create_tools_json_for_responses_api(
     tools: &[ToolSpec],
 ) -> Result<Vec<Value>, serde_json::Error> {
     let mut tools_json = Vec::new();
+    let mut seen_function_names = HashSet::new();
 
     for tool in tools {
-        let json = serde_json::to_value(tool)?;
-        tools_json.push(json);
+        match tool {
+            ToolSpec::Namespace(namespace) => {
+                for namespace_tool in &namespace.tools {
+                    match namespace_tool {
+                        ResponsesApiNamespaceTool::Function(function) => {
+                            if seen_function_names.insert(function.name.clone()) {
+                                tools_json.push(serde_json::to_value(ToolSpec::Function(
+                                    function.clone(),
+                                ))?);
+                            }
+                        }
+                    }
+                }
+            }
+            ToolSpec::Function(function) => {
+                if seen_function_names.insert(function.name.clone()) {
+                    tools_json.push(serde_json::to_value(tool)?);
+                }
+            }
+            ToolSpec::ToolSearch { .. }
+            | ToolSpec::ImageGeneration { .. }
+            | ToolSpec::WebSearch { .. }
+            | ToolSpec::Freeform(_) => {
+                tools_json.push(serde_json::to_value(tool)?);
+            }
+        }
     }
 
     Ok(tools_json)

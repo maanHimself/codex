@@ -150,6 +150,65 @@ fn create_tools_json_for_responses_api_includes_top_level_name() {
 }
 
 #[test]
+fn create_tools_json_for_responses_api_flattens_namespaces_for_wire_request() {
+    let active_lookup = ResponsesApiTool {
+        name: "lookup_order".to_string(),
+        description: "Procedure-scoped order lookup".to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            BTreeMap::from([(
+                "order_id".to_string(),
+                JsonSchema::string(/*description*/ None),
+            )]),
+            /*required*/ None,
+            /*additional_properties*/ None,
+        ),
+        output_schema: None,
+    };
+    let global_lookup = ResponsesApiTool {
+        name: "lookup_order".to_string(),
+        description: "Global order lookup".to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            BTreeMap::new(),
+            /*required*/ None,
+            /*additional_properties*/ None,
+        ),
+        output_schema: None,
+    };
+
+    assert_eq!(
+        create_tools_json_for_responses_api(&[
+            ToolSpec::Namespace(ResponsesApiNamespace {
+                name: "refund_exchange".to_string(),
+                description: "Refund exchange tools".to_string(),
+                tools: vec![ResponsesApiNamespaceTool::Function(active_lookup)],
+            }),
+            ToolSpec::Namespace(ResponsesApiNamespace {
+                name: "global".to_string(),
+                description: "Global tools".to_string(),
+                tools: vec![ResponsesApiNamespaceTool::Function(global_lookup)],
+            }),
+        ])
+        .expect("serialize tools"),
+        vec![json!({
+            "type": "function",
+            "name": "lookup_order",
+            "description": "Procedure-scoped order lookup",
+            "strict": false,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order_id": { "type": "string" },
+                },
+            },
+        })]
+    );
+}
+
+#[test]
 fn namespace_tool_spec_serializes_expected_wire_shape() {
     assert_eq!(
         serde_json::to_value(ToolSpec::Namespace(ResponsesApiNamespace {

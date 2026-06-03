@@ -224,12 +224,16 @@ fn build_model_visible_specs_and_registry(
     }
 
     let registry = ToolRegistry::from_tools(runtimes);
-    let model_visible_specs = merge_into_namespaces(specs)
+    let mut model_visible_specs = merge_into_namespaces(specs)
         .into_iter()
         .filter(|spec| {
             namespace_tools_enabled(turn_context) || !matches!(spec, ToolSpec::Namespace(_))
         })
-        .collect();
+        .collect::<Vec<_>>();
+    prioritize_active_dynamic_tool_namespace(
+        &mut model_visible_specs,
+        active_dynamic_tool_namespace,
+    );
 
     (model_visible_specs, registry)
 }
@@ -243,6 +247,22 @@ fn dynamic_tool_namespace_is_visible(
         Some("global") => true,
         Some(namespace) => Some(namespace) == active_dynamic_tool_namespace,
     }
+}
+
+fn prioritize_active_dynamic_tool_namespace(
+    specs: &mut Vec<ToolSpec>,
+    active_dynamic_tool_namespace: Option<&str>,
+) {
+    let Some(active_namespace) = active_dynamic_tool_namespace else {
+        return;
+    };
+    let Some(index) = specs.iter().position(
+        |spec| matches!(spec, ToolSpec::Namespace(namespace) if namespace.name == active_namespace),
+    ) else {
+        return;
+    };
+    let spec = specs.remove(index);
+    specs.insert(0, spec);
 }
 
 fn spec_for_model_request(

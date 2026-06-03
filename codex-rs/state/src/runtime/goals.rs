@@ -1012,7 +1012,10 @@ mod tests {
             ..original
         };
         assert_eq!(expected, accounted);
-        assert_eq!(Some("airline_book_flight".to_string()), accounted.tool_namespace);
+        assert_eq!(
+            Some("airline_book_flight".to_string()),
+            accounted.tool_namespace
+        );
     }
 
     #[tokio::test]

@@ -756,6 +756,33 @@ async fn code_mode_only_exposes_code_executor_and_hides_nested_tools() {
 }
 
 #[tokio::test]
+async fn active_dynamic_tool_namespace_is_prioritized_in_visible_specs() {
+    let input = ToolPlanInputs {
+        dynamic_tools: vec![
+            dynamic_tool(Some("global"), "lookup_order", /*defer_loading*/ false),
+            dynamic_tool(
+                Some("refund_exchange"),
+                "lookup_order",
+                /*defer_loading*/ false,
+            ),
+        ],
+        active_dynamic_tool_namespace: Some("refund_exchange".to_string()),
+        ..ToolPlanInputs::default()
+    };
+
+    let probe = probe_with(|_| {}, input).await;
+
+    assert_eq!(
+        probe.visible_names,
+        vec!["refund_exchange".to_string(), "global".to_string()]
+    );
+    assert_eq!(
+        probe.namespace_function_names("refund_exchange"),
+        &["lookup_order".to_string()]
+    );
+}
+
+#[tokio::test]
 async fn multi_agent_feature_selects_one_agent_tool_family() {
     let v1 = probe(|turn| {
         set_feature(turn, Feature::Collab, /*enabled*/ true);
