@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use codex_protocol::prompt_overrides;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Map;
@@ -69,8 +70,12 @@ pub(crate) fn render_mcp_tool_approval_template(
 }
 
 fn load_consequential_tool_message_templates() -> Option<Vec<ConsequentialToolMessageTemplate>> {
-    let templates = match serde_json::from_str::<ConsequentialToolMessageTemplatesFile>(
+    let templates_source = prompt_overrides::resolve_prompt_str(
+        prompt_overrides::CONSEQUENTIAL_TOOL_MESSAGE_TEMPLATES,
         include_str!("consequential_tool_message_templates.json"),
+    );
+    let templates = match serde_json::from_str::<ConsequentialToolMessageTemplatesFile>(
+        templates_source.as_ref(),
     ) {
         Ok(templates) => templates,
         Err(err) => {

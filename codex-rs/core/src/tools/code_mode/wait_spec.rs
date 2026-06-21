@@ -1,3 +1,4 @@
+use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -29,12 +30,17 @@ pub(crate) fn create_wait_tool() -> ToolSpec {
         ),
     ]);
 
+    let description = format!(
+        "Waits on a yielded `{}` cell and returns new output or completion.\n{}",
+        codex_code_mode::PUBLIC_TOOL_NAME,
+        codex_code_mode::build_wait_tool_description().trim()
+    );
+
     ToolSpec::Function(ResponsesApiTool {
         name: codex_code_mode::WAIT_TOOL_NAME.to_string(),
-        description: format!(
-            "Waits on a yielded `{}` cell and returns new output or completion.\n{}",
-            codex_code_mode::PUBLIC_TOOL_NAME,
-            codex_code_mode::build_wait_tool_description().trim()
+        description: prompt_overrides::resolve_prompt(
+            prompt_overrides::CODE_MODE_WAIT_TOOL_DESCRIPTION,
+            &description,
         ),
         strict: false,
         parameters: JsonSchema::object(

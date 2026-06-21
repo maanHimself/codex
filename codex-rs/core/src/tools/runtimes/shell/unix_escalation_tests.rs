@@ -100,7 +100,10 @@ fn execve_prompt_rejection_keeps_prefix_rules_on_rules_flag() {
             }),
             &super::DecisionSource::PrefixRule,
         ),
-        Some("approval required by policy rule, but AskForApproval::Granular.rules is false"),
+        Some(
+            "approval required by policy rule, but AskForApproval::Granular.rules is false"
+                .to_string()
+        ),
     );
 }
 
@@ -117,7 +120,10 @@ fn execve_prompt_rejection_keeps_unmatched_commands_on_sandbox_flag() {
             }),
             &super::DecisionSource::UnmatchedCommandFallback,
         ),
-        Some("approval required by policy, but AskForApproval::Granular.sandbox_approval is false"),
+        Some(
+            "approval required by policy, but AskForApproval::Granular.sandbox_approval is false"
+                .to_string()
+        ),
     );
 }
 

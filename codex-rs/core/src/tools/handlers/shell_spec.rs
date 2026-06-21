@@ -1,3 +1,4 @@
+use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -80,17 +81,22 @@ pub(crate) fn create_exec_command_tool_with_environment_id(
         options.exec_permission_approvals_enabled,
     ));
 
+    let description = if cfg!(windows) {
+        format!(
+            "Runs a command in a PTY, returning output or a session ID for ongoing interaction.\n\n{}",
+            windows_shell_guidance()
+        )
+    } else {
+        "Runs a command in a PTY, returning output or a session ID for ongoing interaction."
+            .to_string()
+    };
+
     ToolSpec::Function(ResponsesApiTool {
         name: "exec_command".to_string(),
-        description: if cfg!(windows) {
-            format!(
-                "Runs a command in a PTY, returning output or a session ID for ongoing interaction.\n\n{}",
-                windows_shell_guidance()
-            )
-        } else {
-            "Runs a command in a PTY, returning output or a session ID for ongoing interaction."
-                .to_string()
-        },
+        description: prompt_overrides::resolve_prompt(
+            prompt_overrides::EXEC_COMMAND_TOOL_DESCRIPTION,
+            &description,
+        ),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(
@@ -132,9 +138,10 @@ pub fn create_write_stdin_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "write_stdin".to_string(),
-        description:
-            "Writes characters to an existing unified exec session and returns recent output."
-                .to_string(),
+        description: prompt_overrides::resolve_prompt(
+            prompt_overrides::WRITE_STDIN_TOOL_DESCRIPTION,
+            "Writes characters to an existing unified exec session and returns recent output.",
+        ),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(
@@ -204,7 +211,10 @@ Examples of valid command strings:
 
     ToolSpec::Function(ResponsesApiTool {
         name: "shell_command".to_string(),
-        description,
+        description: prompt_overrides::resolve_prompt(
+            prompt_overrides::SHELL_COMMAND_TOOL_DESCRIPTION,
+            &description,
+        ),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(
@@ -242,8 +252,10 @@ pub fn create_request_permissions_tool(description: String) -> ToolSpec {
 }
 
 pub fn request_permissions_tool_description() -> String {
-    "Request additional filesystem or network permissions from the user and wait for the client to grant a subset of the requested permission profile. Granted permissions apply automatically to later shell-like commands in the current turn, or for the rest of the session if the client approves them at session scope."
-        .to_string()
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::REQUEST_PERMISSIONS_TOOL_DESCRIPTION,
+        "Request additional filesystem or network permissions from the user and wait for the client to grant a subset of the requested permission profile. Granted permissions apply automatically to later shell-like commands in the current turn, or for the rest of the session if the client approves them at session scope.",
+    )
 }
 
 fn unified_exec_output_schema() -> Value {

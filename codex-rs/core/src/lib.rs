@@ -184,6 +184,7 @@ pub use client_common::Prompt;
 pub use client_common::REVIEW_PROMPT;
 pub use client_common::ResponseEvent;
 pub use client_common::ResponseStream;
+pub use client_common::review_prompt;
 pub use compact::content_items_to_text;
 pub use event_mapping::parse_turn_item;
 pub use exec_policy::ExecPolicyError;

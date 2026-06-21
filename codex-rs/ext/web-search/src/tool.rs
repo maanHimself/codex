@@ -18,6 +18,7 @@ use codex_login::default_client::build_reqwest_client;
 use codex_model_provider::SharedModelProvider;
 use codex_protocol::items::WebSearchItem;
 use codex_protocol::models::WebSearchAction;
+use codex_protocol::prompt_overrides;
 use codex_tools::ResponsesApiNamespace;
 use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ToolExposure;
@@ -57,7 +58,10 @@ impl ToolExecutor<ToolCall> for WebSearchTool {
             description: default_namespace_description(WEB_NAMESPACE),
             tools: vec![ResponsesApiNamespaceTool::Function(ResponsesApiTool {
                 name: RUN_TOOL_NAME.to_string(),
-                description: WEB_RUN_DESCRIPTION.to_string(),
+                description: prompt_overrides::resolve_prompt(
+                    prompt_overrides::WEB_RUN_TOOL_DESCRIPTION,
+                    WEB_RUN_DESCRIPTION,
+                ),
                 strict: false,
                 parameters,
                 output_schema: None,

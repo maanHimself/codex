@@ -304,7 +304,7 @@ mod job {
             phase: None,
         }];
         prompt.base_instructions = BaseInstructions {
-            text: crate::stage_one::PROMPT.to_string(),
+            text: crate::stage_one::prompt(),
         };
         prompt.output_schema = Some(output_schema());
         prompt.output_schema_strict = true;

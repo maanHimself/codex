@@ -6,4 +6,7 @@ codex_rust_crate(
     compile_data = glob([
         "templates/**",
     ]),
+    deps = [
+        "//codex-rs/protocol",
+    ],
 )

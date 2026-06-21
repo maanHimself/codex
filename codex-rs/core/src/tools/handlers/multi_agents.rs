@@ -23,6 +23,7 @@ use crate::tools::tool_search_entry::ToolSearchInfo;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::CollabAgentInteractionBeginEvent;
 use codex_protocol::protocol::CollabAgentInteractionEndEvent;
 use codex_protocol::protocol::CollabAgentRef;
@@ -74,7 +75,10 @@ fn multi_agent_tool_search_info(
         spec,
         Some(ToolSearchSourceInfo {
             name: MULTI_AGENT_TOOL_SEARCH_SOURCE_NAME.to_string(),
-            description: Some(MULTI_AGENT_TOOL_SEARCH_SOURCE_DESCRIPTION.to_string()),
+            description: Some(prompt_overrides::resolve_prompt(
+                prompt_overrides::MULTI_AGENT_TOOL_SEARCH_SOURCE_DESCRIPTION,
+                MULTI_AGENT_TOOL_SEARCH_SOURCE_DESCRIPTION,
+            )),
         }),
     )
 }

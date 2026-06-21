@@ -7,6 +7,7 @@ use codex_config::McpServerTransportConfig;
 use codex_config::load_global_mcp_servers;
 use codex_login::default_client::is_first_party_originator;
 use codex_login::default_client::originator;
+use codex_protocol::prompt_overrides;
 use codex_protocol::request_user_input::RequestUserInputArgs;
 use codex_protocol::request_user_input::RequestUserInputQuestion;
 use codex_protocol::request_user_input::RequestUserInputQuestionOption;
@@ -224,25 +225,34 @@ async fn should_install_mcp_dependencies(
     }
 
     let server_list = format_missing_mcp_dependencies(missing);
+    let built_in_question = format!(
+        "The following MCP servers are required by the selected skills but are not installed yet: {server_list}. Install them now?"
+    );
+    let question_text =
+        prompt_overrides::prompt_override(prompt_overrides::SKILL_MCP_DEPENDENCY_INSTALL_QUESTION)
+            .unwrap_or(built_in_question);
+    let install_description = prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILL_MCP_DEPENDENCY_INSTALL_DESCRIPTION,
+        "Install and enable the missing MCP servers in your global config.",
+    );
+    let skip_description = prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILL_MCP_DEPENDENCY_SKIP_DESCRIPTION,
+        "Skip installation for now and do not show again for these MCP servers in this session.",
+    );
     let question = RequestUserInputQuestion {
         id: SKILL_MCP_DEPENDENCY_PROMPT_ID.to_string(),
         header: "Install MCP servers?".to_string(),
-        question: format!(
-            "The following MCP servers are required by the selected skills but are not installed yet: {server_list}. Install them now?"
-        ),
+        question: question_text,
         is_other: false,
         is_secret: false,
         options: Some(vec![
             RequestUserInputQuestionOption {
                 label: MCP_DEPENDENCY_OPTION_INSTALL.to_string(),
-                description:
-                    "Install and enable the missing MCP servers in your global config."
-                        .to_string(),
+                description: install_description,
             },
             RequestUserInputQuestionOption {
                 label: MCP_DEPENDENCY_OPTION_SKIP.to_string(),
-                description: "Skip installation for now and do not show again for these MCP servers in this session."
-                    .to_string(),
+                description: skip_description,
             },
         ]),
     };

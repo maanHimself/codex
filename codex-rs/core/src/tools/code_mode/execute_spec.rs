@@ -1,4 +1,5 @@
 use codex_code_mode::ToolDefinition as CodeModeToolDefinition;
+use codex_protocol::prompt_overrides;
 use codex_tools::FreeformTool;
 use codex_tools::FreeformToolFormat;
 use codex_tools::ToolSpec;
@@ -20,13 +21,18 @@ NEWLINE: /\r?\n/
 SOURCE: /[\s\S]+/
 "#;
 
+    let description = codex_code_mode::build_exec_tool_description(
+        enabled_tools,
+        namespace_descriptions,
+        code_mode_only,
+        deferred_tools_available,
+    );
+
     ToolSpec::Freeform(FreeformTool {
         name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
-        description: codex_code_mode::build_exec_tool_description(
-            enabled_tools,
-            namespace_descriptions,
-            code_mode_only,
-            deferred_tools_available,
+        description: prompt_overrides::resolve_prompt(
+            prompt_overrides::CODE_MODE_EXEC_TOOL_DESCRIPTION,
+            &description,
         ),
         format: FreeformToolFormat {
             r#type: "grammar".to_string(),

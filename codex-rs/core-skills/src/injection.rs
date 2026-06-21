@@ -11,6 +11,7 @@ use codex_analytics::SkillInvocation;
 use codex_analytics::TrackEventsContext;
 use codex_exec_server::LOCAL_FS;
 use codex_otel::SessionTelemetry;
+use codex_protocol::prompt_overrides;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_plugins::mention_syntax::TOOL_MENTION_SIGIL;
@@ -54,6 +55,12 @@ pub async fn build_skill_injections(
             .await
         {
             Ok(contents) => {
+                let contents = prompt_overrides::prompt_override(&format!(
+                    "{}{}",
+                    prompt_overrides::SKILL_BODY_PREFIX,
+                    skill.name
+                ))
+                .unwrap_or(contents);
                 emit_skill_injected_metric(otel, skill, "ok");
                 invocations.push(SkillInvocation {
                     skill_name: skill.name.clone(),

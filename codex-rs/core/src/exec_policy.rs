@@ -23,6 +23,7 @@ use codex_protocol::approvals::ExecPolicyAmendment;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemSandboxKind;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::AskForApproval;
 use codex_shell_command::is_dangerous_command::command_might_be_dangerous;
 use codex_shell_command::is_safe_command::is_known_safe_command;
@@ -97,6 +98,13 @@ static BANNED_PREFIX_SUGGESTIONS: &[&[&str]] = &[
     &["lua", "-e"],
     &["osascript"],
 ];
+
+fn prompt_conflict_reason() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::EXEC_POLICY_PROMPT_CONFLICT_REASON,
+        PROMPT_CONFLICT_REASON,
+    )
+}
 
 /// Describes which unmatched-command heuristics should classify the command
 /// words being evaluated by exec-policy.
@@ -175,21 +183,21 @@ fn is_policy_match(rule_match: &RuleMatch) -> bool {
 pub(crate) fn prompt_is_rejected_by_policy(
     approval_policy: AskForApproval,
     prompt_is_rule: bool,
-) -> Option<&'static str> {
+) -> Option<String> {
     match approval_policy {
-        AskForApproval::Never => Some(PROMPT_CONFLICT_REASON),
+        AskForApproval::Never => Some(prompt_conflict_reason()),
         AskForApproval::OnFailure => None,
         AskForApproval::OnRequest => None,
         AskForApproval::UnlessTrusted => None,
         AskForApproval::Granular(granular_config) => {
             if prompt_is_rule {
                 if !granular_config.allows_rules_approval() {
-                    Some(REJECT_RULES_APPROVAL_REASON)
+                    Some(REJECT_RULES_APPROVAL_REASON.to_string())
                 } else {
                     None
                 }
             } else if !granular_config.allows_sandbox_approval() {
-                Some(REJECT_SANDBOX_APPROVAL_REASON)
+                Some(REJECT_SANDBOX_APPROVAL_REASON.to_string())
             } else {
                 None
             }
@@ -337,9 +345,7 @@ impl ExecPolicyManager {
                     is_policy_match(rule_match) && rule_match.decision() == Decision::Prompt
                 });
                 match prompt_is_rejected_by_policy(approval_policy, prompt_is_rule) {
-                    Some(reason) => ExecApprovalRequirement::Forbidden {
-                        reason: reason.to_string(),
-                    },
+                    Some(reason) => ExecApprovalRequirement::Forbidden { reason },
                     None => ExecApprovalRequirement::NeedsApproval {
                         reason: derive_prompt_reason(command, &evaluation),
                         proposed_execpolicy_amendment: requested_amendment.or_else(|| {

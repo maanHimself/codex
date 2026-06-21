@@ -13,6 +13,7 @@ use crate::bottom_pane::slash_commands::BuiltinCommandFlags;
 use crate::bottom_pane::slash_commands::ServiceTierCommand;
 use crate::bottom_pane::slash_commands::SlashCommandItem;
 use crate::bottom_pane::slash_commands::find_slash_command;
+use codex_protocol::prompt_overrides;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -212,7 +213,11 @@ impl ChatWidget {
                     return;
                 }
                 const INIT_PROMPT: &str = include_str!("../../prompt_for_init_command.md");
-                self.submit_user_message(INIT_PROMPT.to_string().into());
+                let init_prompt = prompt_overrides::resolve_prompt(
+                    prompt_overrides::INIT_COMMAND_PROMPT,
+                    INIT_PROMPT,
+                );
+                self.submit_user_message(init_prompt.into());
             }
             SlashCommand::Compact => {
                 self.clear_token_usage();

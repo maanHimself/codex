@@ -28,6 +28,7 @@ use codex_otel::GOAL_USAGE_LIMITED_METRIC;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ThreadGoal;
 use codex_protocol::protocol::ThreadGoalStatus;
@@ -58,24 +59,34 @@ pub(crate) struct CreateGoalRequest {
     pub(crate) token_budget: Option<i64>,
 }
 
-static CONTINUATION_PROMPT_TEMPLATE: LazyLock<Template> =
-    LazyLock::new(
-        || match Template::parse(include_str!("../templates/goals/continuation.md")) {
-            Ok(template) => template,
-            Err(err) => panic!("embedded goals/continuation.md template is invalid: {err}"),
-        },
+static CONTINUATION_PROMPT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
+    let prompt = prompt_overrides::resolve_prompt_str(
+        prompt_overrides::GOAL_CONTINUATION_PROMPT,
+        include_str!("../templates/goals/continuation.md"),
     );
+    match Template::parse(prompt.as_ref()) {
+        Ok(template) => template,
+        Err(err) => panic!("embedded goals/continuation.md template is invalid: {err}"),
+    }
+});
 
-static BUDGET_LIMIT_PROMPT_TEMPLATE: LazyLock<Template> =
-    LazyLock::new(
-        || match Template::parse(include_str!("../templates/goals/budget_limit.md")) {
-            Ok(template) => template,
-            Err(err) => panic!("embedded goals/budget_limit.md template is invalid: {err}"),
-        },
+static BUDGET_LIMIT_PROMPT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
+    let prompt = prompt_overrides::resolve_prompt_str(
+        prompt_overrides::GOAL_BUDGET_LIMIT_PROMPT,
+        include_str!("../templates/goals/budget_limit.md"),
     );
+    match Template::parse(prompt.as_ref()) {
+        Ok(template) => template,
+        Err(err) => panic!("embedded goals/budget_limit.md template is invalid: {err}"),
+    }
+});
 
 static OBJECTIVE_UPDATED_PROMPT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
-    match Template::parse(include_str!("../templates/goals/objective_updated.md")) {
+    let prompt = prompt_overrides::resolve_prompt_str(
+        prompt_overrides::GOAL_OBJECTIVE_UPDATED_PROMPT,
+        include_str!("../templates/goals/objective_updated.md"),
+    );
+    match Template::parse(prompt.as_ref()) {
         Ok(template) => template,
         Err(err) => {
             panic!("embedded goals/objective_updated.md template is invalid: {err}")

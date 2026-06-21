@@ -1,3 +1,4 @@
+use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -28,7 +29,10 @@ pub fn create_request_user_input_tool(description: String) -> ToolSpec {
 }
 
 pub fn request_user_input_tool_description() -> String {
-    "Ask the customer a question as a normal assistant message.".to_string()
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::REQUEST_USER_INPUT_TOOL_DESCRIPTION,
+        "Ask the customer a question as a normal assistant message.",
+    )
 }
 
 #[cfg(test)]

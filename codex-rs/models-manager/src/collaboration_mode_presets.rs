@@ -1,17 +1,12 @@
-use codex_collaboration_mode_templates::DEFAULT as COLLABORATION_MODE_DEFAULT;
-use codex_collaboration_mode_templates::PLAN as COLLABORATION_MODE_PLAN;
+use codex_collaboration_mode_templates::DEFAULT as BUILT_IN_COLLABORATION_MODE_DEFAULT;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::TUI_VISIBLE_COLLABORATION_MODES;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::prompt_overrides;
 use codex_utils_template::Template;
-use std::sync::LazyLock;
 
 const KNOWN_MODE_NAMES_TEMPLATE_KEY: &str = "KNOWN_MODE_NAMES";
-static COLLABORATION_MODE_DEFAULT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
-    Template::parse(COLLABORATION_MODE_DEFAULT)
-        .unwrap_or_else(|err| panic!("collaboration mode default template must parse: {err}"))
-});
 
 pub fn builtin_collaboration_mode_presets() -> Vec<CollaborationModeMask> {
     vec![plan_preset(), default_preset()]
@@ -23,7 +18,7 @@ fn plan_preset() -> CollaborationModeMask {
         mode: Some(ModeKind::Plan),
         model: None,
         reasoning_effort: Some(Some(ReasoningEffort::Medium)),
-        developer_instructions: Some(Some(COLLABORATION_MODE_PLAN.to_string())),
+        developer_instructions: Some(Some(codex_collaboration_mode_templates::plan())),
     }
 }
 
@@ -39,7 +34,12 @@ fn default_preset() -> CollaborationModeMask {
 
 fn default_mode_instructions() -> String {
     let known_mode_names = format_mode_names(&TUI_VISIBLE_COLLABORATION_MODES);
-    COLLABORATION_MODE_DEFAULT_TEMPLATE
+    let default_template = prompt_overrides::resolve_prompt_str(
+        prompt_overrides::COLLABORATION_DEFAULT,
+        BUILT_IN_COLLABORATION_MODE_DEFAULT,
+    );
+    Template::parse(default_template.as_ref())
+        .unwrap_or_else(|err| panic!("collaboration mode default template must parse: {err}"))
         .render([(KNOWN_MODE_NAMES_TEMPLATE_KEY, known_mode_names.as_str())])
         .unwrap_or_else(|err| panic!("collaboration mode default template must render: {err}"))
 }

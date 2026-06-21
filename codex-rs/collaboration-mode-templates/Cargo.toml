@@ -12,3 +12,6 @@ test = false
 
 [lints]
 workspace = true
+
+[dependencies]
+codex-protocol = { workspace = true }

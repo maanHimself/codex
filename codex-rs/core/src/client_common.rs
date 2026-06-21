@@ -3,6 +3,7 @@ use codex_config::types::Personality;
 use codex_protocol::error::Result;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::prompt_overrides;
 use codex_tools::ToolSpec;
 use futures::Stream;
 use serde_json::Value;
@@ -19,6 +20,24 @@ pub const REVIEW_PROMPT: &str = include_str!("../review_prompt.md");
 pub const REVIEW_EXIT_SUCCESS_TMPL: &str = include_str!("../templates/review/exit_success.xml");
 pub const REVIEW_EXIT_INTERRUPTED_TMPL: &str =
     include_str!("../templates/review/exit_interrupted.xml");
+
+pub fn review_prompt() -> String {
+    prompt_overrides::resolve_prompt(prompt_overrides::REVIEW_SYSTEM_PROMPT, REVIEW_PROMPT)
+}
+
+pub fn review_exit_success_template() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::REVIEW_EXIT_SUCCESS_TEMPLATE,
+        REVIEW_EXIT_SUCCESS_TMPL,
+    )
+}
+
+pub fn review_exit_interrupted_template() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::REVIEW_EXIT_INTERRUPTED_TEMPLATE,
+        REVIEW_EXIT_INTERRUPTED_TMPL,
+    )
+}
 
 /// API request payload for a single model turn
 #[derive(Debug, Clone)]

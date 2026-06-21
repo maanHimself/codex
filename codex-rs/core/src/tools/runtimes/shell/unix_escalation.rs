@@ -40,6 +40,7 @@ use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::NetworkSandboxPolicy;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::GuardianCommandSource;
 use codex_protocol::protocol::NetworkPolicyRuleAction;
@@ -84,6 +85,13 @@ const REJECT_SANDBOX_APPROVAL_REASON: &str =
     "approval required by policy, but AskForApproval::Granular.sandbox_approval is false";
 const REJECT_RULES_APPROVAL_REASON: &str =
     "approval required by policy rule, but AskForApproval::Granular.rules is false";
+
+fn prompt_conflict_reason() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::UNIX_ESCALATION_PROMPT_CONFLICT_REASON,
+        PROMPT_CONFLICT_REASON,
+    )
+}
 fn approval_sandbox_permissions(
     sandbox_permissions: SandboxPermissions,
     additional_permissions_preapproved: bool,
@@ -355,18 +363,18 @@ struct PromptDecision {
 fn execve_prompt_is_rejected_by_policy(
     approval_policy: AskForApproval,
     decision_source: &DecisionSource,
-) -> Option<&'static str> {
+) -> Option<String> {
     match (approval_policy, decision_source) {
-        (AskForApproval::Never, _) => Some(PROMPT_CONFLICT_REASON),
+        (AskForApproval::Never, _) => Some(prompt_conflict_reason()),
         (AskForApproval::Granular(granular_config), DecisionSource::PrefixRule)
             if !granular_config.allows_rules_approval() =>
         {
-            Some(REJECT_RULES_APPROVAL_REASON)
+            Some(REJECT_RULES_APPROVAL_REASON.to_string())
         }
         (AskForApproval::Granular(granular_config), DecisionSource::UnmatchedCommandFallback)
             if !granular_config.allows_sandbox_approval() =>
         {
-            Some(REJECT_SANDBOX_APPROVAL_REASON)
+            Some(REJECT_SANDBOX_APPROVAL_REASON.to_string())
         }
         _ => None,
     }

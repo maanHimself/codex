@@ -916,6 +916,13 @@ impl ResponseItem {
 
 pub const BASE_INSTRUCTIONS_DEFAULT: &str = include_str!("prompts/base_instructions/default.md");
 
+pub fn base_instructions_default() -> String {
+    crate::prompt_overrides::resolve_prompt(
+        crate::prompt_overrides::BASE_INSTRUCTIONS_DEFAULT,
+        BASE_INSTRUCTIONS_DEFAULT,
+    )
+}
+
 /// Base instructions for the model in a thread. Corresponds to the `instructions` field in the ResponsesAPI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema, TS)]
 #[serde(rename = "base_instructions", rename_all = "snake_case")]
@@ -926,7 +933,7 @@ pub struct BaseInstructions {
 impl Default for BaseInstructions {
     fn default() -> Self {
         Self {
-            text: BASE_INSTRUCTIONS_DEFAULT.to_string(),
+            text: base_instructions_default(),
         }
     }
 }

@@ -1,4 +1,5 @@
 use codex_git_utils::merge_base_with_head;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::ReviewTarget;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -55,10 +56,14 @@ pub fn resolve_review_request(
 
 pub fn review_prompt(target: &ReviewTarget, cwd: &AbsolutePathBuf) -> anyhow::Result<String> {
     match target {
-        ReviewTarget::UncommittedChanges => Ok(UNCOMMITTED_PROMPT.to_string()),
+        ReviewTarget::UncommittedChanges => Ok(prompt_overrides::resolve_prompt(
+            prompt_overrides::REVIEW_UNCOMMITTED_PROMPT,
+            UNCOMMITTED_PROMPT,
+        )),
         ReviewTarget::BaseBranch { branch } => {
             if let Some(commit) = merge_base_with_head(cwd, branch)? {
                 Ok(render_review_prompt(
+                    prompt_overrides::REVIEW_BASE_BRANCH_PROMPT,
                     &BASE_BRANCH_PROMPT_TEMPLATE,
                     [
                         ("base_branch", branch.as_str()),
@@ -67,6 +72,7 @@ pub fn review_prompt(target: &ReviewTarget, cwd: &AbsolutePathBuf) -> anyhow::Re
                 ))
             } else {
                 Ok(render_review_prompt(
+                    prompt_overrides::REVIEW_BASE_BRANCH_BACKUP_PROMPT,
                     &BASE_BRANCH_PROMPT_BACKUP_TEMPLATE,
                     [("branch", branch.as_str())],
                 ))
@@ -75,11 +81,13 @@ pub fn review_prompt(target: &ReviewTarget, cwd: &AbsolutePathBuf) -> anyhow::Re
         ReviewTarget::Commit { sha, title } => {
             if let Some(title) = title {
                 Ok(render_review_prompt(
+                    prompt_overrides::REVIEW_COMMIT_WITH_TITLE_PROMPT,
                     &COMMIT_PROMPT_WITH_TITLE_TEMPLATE,
                     [("sha", sha.as_str()), ("title", title.as_str())],
                 ))
             } else {
                 Ok(render_review_prompt(
+                    prompt_overrides::REVIEW_COMMIT_PROMPT,
                     &COMMIT_PROMPT_TEMPLATE,
                     [("sha", sha.as_str())],
                 ))
@@ -96,12 +104,14 @@ pub fn review_prompt(target: &ReviewTarget, cwd: &AbsolutePathBuf) -> anyhow::Re
 }
 
 fn render_review_prompt<'a, const N: usize>(
+    key: &str,
     template: &Template,
     variables: [(&'a str, &'a str); N],
 ) -> String {
-    template
+    let built_in = template
         .render(variables)
-        .unwrap_or_else(|err| panic!("review prompt template must render: {err}"))
+        .unwrap_or_else(|err| panic!("review prompt template must render: {err}"));
+    prompt_overrides::prompt_override(key).unwrap_or(built_in)
 }
 
 pub fn user_facing_hint(target: &ReviewTarget) -> String {
@@ -137,7 +147,11 @@ mod tests {
     #[test]
     fn review_prompt_template_renders_base_branch_backup_variant() {
         assert_eq!(
-            render_review_prompt(&BASE_BRANCH_PROMPT_BACKUP_TEMPLATE, [("branch", "main")]),
+            render_review_prompt(
+                prompt_overrides::REVIEW_BASE_BRANCH_BACKUP_PROMPT,
+                &BASE_BRANCH_PROMPT_BACKUP_TEMPLATE,
+                [("branch", "main")]
+            ),
             "Review the code changes against the base branch 'main'. Start by finding the merge diff between the current branch and main's upstream e.g. (`git merge-base HEAD \"$(git rev-parse --abbrev-ref \"main@{upstream}\")\"`), then run `git diff` against that SHA to see what changes we would merge into the main branch. Provide prioritized, actionable findings."
         );
     }
@@ -146,6 +160,7 @@ mod tests {
     fn review_prompt_template_renders_base_branch_variant() {
         assert_eq!(
             render_review_prompt(
+                prompt_overrides::REVIEW_BASE_BRANCH_PROMPT,
                 &BASE_BRANCH_PROMPT_TEMPLATE,
                 [("base_branch", "main"), ("merge_base_sha", "abc123")]
             ),

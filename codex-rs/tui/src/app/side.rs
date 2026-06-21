@@ -11,6 +11,7 @@ use super::*;
 use crate::chatwidget::InterruptedTurnNoticeMode;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::prompt_overrides;
 
 const SIDE_RENAME_BLOCK_MESSAGE: &str = "Side conversations are ephemeral and cannot be renamed.";
 const SIDE_MAIN_THREAD_UNAVAILABLE_MESSAGE: &str =
@@ -46,6 +47,20 @@ External tools may be available according to this thread's current permissions. 
 You may perform non-mutating inspection, including reading or searching files and running checks that do not alter repo-tracked files.
 
 Do not modify files, source, git state, permissions, configuration, or any other workspace state unless the user explicitly requests that mutation in this side conversation. Do not request escalated permissions or broader sandbox access unless the user explicitly requests a mutation that requires it. If the user explicitly requests a mutation, keep it minimal, local to the request, and avoid disrupting the main thread."#;
+
+fn side_boundary_prompt() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SIDE_CONVERSATION_BOUNDARY_PROMPT,
+        SIDE_BOUNDARY_PROMPT,
+    )
+}
+
+fn side_developer_instructions_prompt() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SIDE_CONVERSATION_DEVELOPER_INSTRUCTIONS,
+        SIDE_DEVELOPER_INSTRUCTIONS,
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SideParentStatus {
@@ -437,11 +452,12 @@ impl App {
     }
 
     fn side_developer_instructions(existing_instructions: Option<&str>) -> String {
+        let side_developer_instructions = side_developer_instructions_prompt();
         match existing_instructions {
             Some(existing_instructions) if !existing_instructions.trim().is_empty() => {
-                format!("{existing_instructions}\n\n{SIDE_DEVELOPER_INSTRUCTIONS}")
+                format!("{existing_instructions}\n\n{side_developer_instructions}")
             }
-            _ => SIDE_DEVELOPER_INSTRUCTIONS.to_string(),
+            _ => side_developer_instructions,
         }
     }
 
@@ -450,7 +466,7 @@ impl App {
             id: None,
             role: "user".to_string(),
             content: vec![ContentItem::InputText {
-                text: SIDE_BOUNDARY_PROMPT.to_string(),
+                text: side_boundary_prompt(),
             }],
             phase: None,
         }

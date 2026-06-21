@@ -55,7 +55,7 @@ impl SessionTask for CompactTask {
                 /*manual*/ true,
             );
             let input = vec![UserInput::Text {
-                text: ctx.compact_prompt().to_string(),
+                text: ctx.compact_prompt(),
                 // Compaction prompt is synthesized; no UI element ranges to preserve.
                 text_elements: Vec::new(),
             }];

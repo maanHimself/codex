@@ -26,17 +26,9 @@ use crate::session::turn_context::TurnContext;
 use crate::state::TaskKind;
 use codex_features::Feature;
 use codex_protocol::user_input::UserInput;
-use std::sync::LazyLock;
 
 use super::SessionTask;
 use super::SessionTaskContext;
-
-static REVIEW_EXIT_SUCCESS_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
-    let normalized =
-        normalize_review_template_line_endings(crate::client_common::REVIEW_EXIT_SUCCESS_TMPL);
-    Template::parse(normalized.as_ref())
-        .unwrap_or_else(|err| panic!("review exit success template must parse: {err}"))
-});
 
 #[derive(Clone, Copy)]
 pub(crate) struct ReviewTask;
@@ -121,7 +113,7 @@ async fn start_review_conversation(
     let _ = sub_agent_config.features.disable(Feature::MultiAgentV2);
 
     // Set explicit review rubric for the sub-agent
-    sub_agent_config.base_instructions = Some(crate::REVIEW_PROMPT.to_string());
+    sub_agent_config.base_instructions = Some(crate::client_common::review_prompt());
     sub_agent_config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
 
     let model = config
@@ -240,10 +232,8 @@ pub(crate) async fn exit_review_mode(
         let assistant_message = render_review_output_text(&out);
         (rendered, assistant_message)
     } else {
-        let rendered = normalize_review_template_line_endings(
-            crate::client_common::REVIEW_EXIT_INTERRUPTED_TMPL,
-        )
-        .into_owned();
+        let template = crate::client_common::review_exit_interrupted_template();
+        let rendered = normalize_review_template_line_endings(&template).into_owned();
         let assistant_message =
             "Review was interrupted. Please re-run /review and wait for it to complete."
                 .to_string();
@@ -289,7 +279,10 @@ pub(crate) async fn exit_review_mode(
 }
 
 fn render_review_exit_success(results: &str) -> String {
-    REVIEW_EXIT_SUCCESS_TEMPLATE
+    let template = crate::client_common::review_exit_success_template();
+    let normalized = normalize_review_template_line_endings(&template);
+    Template::parse(normalized.as_ref())
+        .unwrap_or_else(|err| panic!("review exit success template must parse: {err}"))
         .render([("results", results)])
         .unwrap_or_else(|err| panic!("review exit success template must render: {err}"))
 }

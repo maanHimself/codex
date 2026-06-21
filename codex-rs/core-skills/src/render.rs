@@ -10,6 +10,7 @@ use codex_otel::THREAD_SKILLS_DESCRIPTION_TRUNCATED_CHARS_METRIC;
 use codex_otel::THREAD_SKILLS_ENABLED_TOTAL_METRIC;
 use codex_otel::THREAD_SKILLS_KEPT_TOTAL_METRIC;
 use codex_otel::THREAD_SKILLS_TRUNCATED_METRIC;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::SkillScope;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_output_truncation::approx_token_count;
@@ -59,13 +60,62 @@ pub const SKILLS_HOW_TO_USE_WITH_ALIASES: &str = r###"- Discovery: The list abov
   - When variants exist (frameworks, providers, domains), pick only the relevant reference file(s) and note that choice.
 - Safety and fallback: If a skill can't be applied cleanly (missing files, unclear instructions), state the issue, pick the next-best approach, and continue."###;
 
+fn skill_description_truncated_warning() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILL_DESCRIPTION_TRUNCATED_WARNING,
+        SKILL_DESCRIPTION_TRUNCATED_WARNING,
+    )
+}
+
+fn skill_description_truncated_warning_with_percent() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILL_DESCRIPTION_TRUNCATED_WARNING_WITH_PERCENT,
+        SKILL_DESCRIPTION_TRUNCATED_WARNING_WITH_PERCENT,
+    )
+}
+
+fn skill_descriptions_removed_warning_prefix() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILL_DESCRIPTIONS_REMOVED_WARNING_PREFIX,
+        SKILL_DESCRIPTIONS_REMOVED_WARNING_PREFIX,
+    )
+}
+
+fn skills_intro_with_absolute_paths() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILLS_INTRO_WITH_ABSOLUTE_PATHS,
+        SKILLS_INTRO_WITH_ABSOLUTE_PATHS,
+    )
+}
+
+fn skills_intro_with_aliases() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILLS_INTRO_WITH_ALIASES,
+        SKILLS_INTRO_WITH_ALIASES,
+    )
+}
+
+fn skills_how_to_use_with_absolute_paths() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILLS_HOW_TO_USE_WITH_ABSOLUTE_PATHS,
+        SKILLS_HOW_TO_USE_WITH_ABSOLUTE_PATHS,
+    )
+}
+
+fn skills_how_to_use_with_aliases() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::SKILLS_HOW_TO_USE_WITH_ALIASES,
+        SKILLS_HOW_TO_USE_WITH_ALIASES,
+    )
+}
+
 pub fn render_available_skills_body(skill_root_lines: &[String], skill_lines: &[String]) -> String {
     let mut lines: Vec<String> = Vec::new();
     lines.push("## Skills".to_string());
     if skill_root_lines.is_empty() {
-        lines.push(SKILLS_INTRO_WITH_ABSOLUTE_PATHS.to_string());
+        lines.push(skills_intro_with_absolute_paths());
     } else {
-        lines.push(SKILLS_INTRO_WITH_ALIASES.to_string());
+        lines.push(skills_intro_with_aliases());
         lines.push("### Skill roots".to_string());
         lines.extend(skill_root_lines.iter().cloned());
     }
@@ -74,11 +124,11 @@ pub fn render_available_skills_body(skill_root_lines: &[String], skill_lines: &[
 
     lines.push("### How to use skills".to_string());
     let how_to_use = if skill_root_lines.is_empty() {
-        SKILLS_HOW_TO_USE_WITH_ABSOLUTE_PATHS
+        skills_how_to_use_with_absolute_paths()
     } else {
-        SKILLS_HOW_TO_USE_WITH_ALIASES
+        skills_how_to_use_with_aliases()
     };
-    lines.push(how_to_use.to_string());
+    lines.push(how_to_use);
 
     format!("\n{}\n", lines.join("\n"))
 }
@@ -223,7 +273,7 @@ fn build_available_skills_from_lines(
         };
         Some(format!(
             "{} {} additional {} {} not included in the model-visible skills list.",
-            budget_warning_prefix(budget, SKILL_DESCRIPTIONS_REMOVED_WARNING_PREFIX),
+            budget_warning_prefix(budget, skill_descriptions_removed_warning_prefix()),
             report.omitted_count,
             skill_word,
             verb
@@ -231,13 +281,10 @@ fn build_available_skills_from_lines(
     } else if report.average_truncated_description_chars()
         > SKILL_DESCRIPTION_TRUNCATION_WARNING_THRESHOLD_CHARS
     {
-        Some(
-            match budget {
-                SkillMetadataBudget::Tokens(_) => SKILL_DESCRIPTION_TRUNCATED_WARNING_WITH_PERCENT,
-                SkillMetadataBudget::Characters(_) => SKILL_DESCRIPTION_TRUNCATED_WARNING,
-            }
-            .to_string(),
-        )
+        Some(match budget {
+            SkillMetadataBudget::Tokens(_) => skill_description_truncated_warning_with_percent(),
+            SkillMetadataBudget::Characters(_) => skill_description_truncated_warning(),
+        })
     } else {
         None
     };
@@ -276,7 +323,7 @@ fn record_available_skills_side_effects(
     }
 }
 
-fn budget_warning_prefix(budget: SkillMetadataBudget, prefix: &str) -> String {
+fn budget_warning_prefix(budget: SkillMetadataBudget, prefix: String) -> String {
     match budget {
         SkillMetadataBudget::Tokens(_) => prefix.replacen(
             "Exceeded skills context budget.",

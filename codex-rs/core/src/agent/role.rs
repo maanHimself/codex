@@ -19,6 +19,7 @@ use codex_config::ConfigLayerStackOrdering;
 use codex_config::config_toml::ConfigToml;
 use codex_config::loader::resolve_relative_paths_in_config_toml;
 use codex_exec_server::LOCAL_FS;
+use codex_protocol::prompt_overrides;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -90,7 +91,6 @@ async fn load_role_layer_toml(
 ) -> anyhow::Result<TomlValue> {
     let (role_config_toml, role_config_base) = if is_built_in {
         let role_config_contents = built_in::config_file_contents(config_file)
-            .map(str::to_owned)
             .ok_or(anyhow!("No corresponding config content"))?;
         let role_config_toml: TomlValue = toml::from_str(&role_config_contents)?;
         (role_config_toml, config.codex_home.as_path())
@@ -254,7 +254,6 @@ pub(crate) mod spawn_tool_spec {
                 .as_ref()
                 .and_then(|config_file| {
                     built_in::config_file_contents(config_file)
-                        .map(str::to_owned)
                         .or_else(|| std::fs::read_to_string(config_file).ok())
                 })
                 .and_then(|contents| toml::from_str::<TomlValue>(&contents).ok())
@@ -370,12 +369,18 @@ Rules:
     }
 
     /// Resolves a built-in role `config_file` path to embedded content.
-    pub(super) fn config_file_contents(path: &Path) -> Option<&'static str> {
+    pub(super) fn config_file_contents(path: &Path) -> Option<String> {
         const EXPLORER: &str = include_str!("builtins/explorer.toml");
         const AWAITER: &str = include_str!("builtins/awaiter.toml");
         match path.to_str()? {
-            "explorer.toml" => Some(EXPLORER),
-            "awaiter.toml" => Some(AWAITER),
+            "explorer.toml" => Some(prompt_overrides::resolve_prompt(
+                prompt_overrides::AGENT_ROLE_EXPLORER,
+                EXPLORER,
+            )),
+            "awaiter.toml" => Some(prompt_overrides::resolve_prompt(
+                prompt_overrides::AGENT_ROLE_AWAITER,
+                AWAITER,
+            )),
             _ => None,
         }
     }

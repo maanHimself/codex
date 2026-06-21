@@ -1,4 +1,5 @@
 use codex_protocol::models::VIEW_IMAGE_TOOL_NAME;
+use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -40,11 +41,17 @@ pub fn create_view_image_tool(options: ViewImageToolOptions) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: VIEW_IMAGE_TOOL_NAME.to_string(),
-        description: "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk."
-            .to_string(),
+        description: prompt_overrides::resolve_prompt(
+            prompt_overrides::VIEW_IMAGE_TOOL_DESCRIPTION,
+            "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.",
+        ),
         strict: false,
         defer_loading: None,
-        parameters: JsonSchema::object(properties, Some(vec!["path".to_string()]), Some(false.into())),
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["path".to_string()]),
+            Some(false.into()),
+        ),
         output_schema: Some(view_image_output_schema()),
     })
 }

@@ -1,3 +1,4 @@
+use codex_protocol::prompt_overrides;
 use codex_tools::FreeformTool;
 use codex_tools::FreeformToolFormat;
 use codex_tools::ToolSpec;
@@ -15,9 +16,13 @@ pub fn create_apply_patch_freeform_tool(include_environment_id: bool) -> ToolSpe
     } else {
         APPLY_PATCH_LARK_GRAMMAR.to_string()
     };
+    let description = prompt_overrides::resolve_prompt(
+        prompt_overrides::APPLY_PATCH_TOOL_DESCRIPTION,
+        "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+    );
     ToolSpec::Freeform(FreeformTool {
         name: "apply_patch".to_string(),
-        description: "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.".to_string(),
+        description,
         format: FreeformToolFormat {
             r#type: "grammar".to_string(),
             syntax: "lark".to_string(),

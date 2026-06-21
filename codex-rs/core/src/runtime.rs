@@ -47,8 +47,12 @@ pub use codex_runtime_seams::DefaultToolExecutionRuntime;
 pub use codex_runtime_seams::EventSink;
 pub use codex_runtime_seams::IdGenerator;
 pub use codex_runtime_seams::NoopEventSink;
+pub use codex_runtime_seams::PromptOverrideProvider;
 pub use codex_runtime_seams::ToolExecutionRequest;
 pub use codex_runtime_seams::ToolExecutionRuntime;
+pub use codex_runtime_seams::all_prompt_override_keys;
+pub use codex_runtime_seams::clear_prompt_override_provider;
+pub use codex_runtime_seams::set_prompt_override_provider;
 
 pub struct ModelStreamRequest<'a> {
     pub prompt: &'a Prompt,

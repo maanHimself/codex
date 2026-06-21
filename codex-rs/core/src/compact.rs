@@ -31,6 +31,7 @@ use codex_protocol::items::TurnItem;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::CompactedItem;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::TurnStartedEvent;
@@ -49,6 +50,17 @@ use codex_model_provider_info::ModelProviderInfo;
 pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt.md");
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
+
+pub(crate) fn summarization_prompt() -> String {
+    prompt_overrides::resolve_prompt(
+        prompt_overrides::COMPACT_SUMMARIZATION_PROMPT,
+        SUMMARIZATION_PROMPT,
+    )
+}
+
+pub(crate) fn summary_prefix() -> String {
+    prompt_overrides::resolve_prompt(prompt_overrides::COMPACT_SUMMARY_PREFIX, SUMMARY_PREFIX)
+}
 
 /// Controls whether compaction replacement history must include initial context.
 ///
@@ -76,7 +88,7 @@ pub(crate) async fn run_inline_auto_compact_task(
     reason: CompactionReason,
     phase: CompactionPhase,
 ) -> CodexResult<()> {
-    let prompt = turn_context.compact_prompt().to_string();
+    let prompt = turn_context.compact_prompt();
     let input = vec![UserInput::Text {
         text: prompt,
         // Compaction prompt is synthesized; no UI element ranges to preserve.
@@ -270,7 +282,7 @@ async fn run_compact_task_inner_impl(
     let history_snapshot = sess.clone_history().await;
     let history_items = history_snapshot.raw_items();
     let summary_suffix = get_last_assistant_message_from_turn(history_items).unwrap_or_default();
-    let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
+    let summary_text = format!("{}\n{summary_suffix}", summary_prefix());
     let user_messages = collect_user_messages(history_items);
 
     let mut new_history = build_compacted_history(Vec::new(), &user_messages, &summary_text);
@@ -413,7 +425,7 @@ pub(crate) fn collect_user_messages(items: &[ResponseItem]) -> Vec<String> {
 }
 
 pub(crate) fn is_summary_message(message: &str) -> bool {
-    message.starts_with(format!("{SUMMARY_PREFIX}\n").as_str())
+    message.starts_with(format!("{}\n", summary_prefix()).as_str())
 }
 
 /// Inserts canonical initial context into compacted replacement history at the
