@@ -94,6 +94,10 @@ static OBJECTIVE_UPDATED_PROMPT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| 
     }
 });
 
+fn automatic_goal_continuation_enabled() -> bool {
+    false
+}
+
 #[derive(Clone, Copy)]
 enum BudgetLimitSteering {
     Allowed,
@@ -347,10 +351,8 @@ impl Session {
     /// account usage and may inject budget steering, completion accounting
     /// suppresses that steering, external mutations account best-effort before
     /// changing state, thread resumes restore runtime state for already-active
-    /// goals, explicit maybe-continue events
-    /// start idle goal continuation turns, and continuation turns with no counted
-    /// autonomous activity suppress the next automatic continuation until
-    /// user/tool/external activity resets it.
+    /// goals, and explicit maybe-continue events do not start idle goal
+    /// continuation turns while automatic idle goal continuation is disabled.
     pub(crate) fn goal_runtime_apply<'a>(
         self: &'a Arc<Self>,
         event: GoalRuntimeEvent<'a>,
@@ -1404,6 +1406,12 @@ impl Session {
         self: &Arc<Self>,
     ) -> Option<GoalContinuationCandidate> {
         if !self.enabled(Feature::Goals) {
+            return None;
+        }
+        if !automatic_goal_continuation_enabled() {
+            tracing::debug!(
+                "skipping active goal continuation because idle continuation is disabled"
+            );
             return None;
         }
         if should_ignore_goal_for_mode(self.collaboration_mode().await.mode) {

@@ -500,6 +500,23 @@ async fn host_context_gates_goal_and_agent_job_tools() {
 }
 
 #[tokio::test]
+async fn task_plan_tool_can_be_hidden_for_embedded_runtimes() {
+    let enabled = probe(|turn| {
+        set_feature(turn, Feature::TaskPlanTool, /*enabled*/ true);
+    })
+    .await;
+    enabled.assert_visible_contains(&["update_plan"]);
+    enabled.assert_registered_contains(&["update_plan"]);
+
+    let disabled = probe(|turn| {
+        set_feature(turn, Feature::TaskPlanTool, /*enabled*/ false);
+    })
+    .await;
+    disabled.assert_visible_lacks(&["update_plan"]);
+    disabled.assert_registered_lacks(&["update_plan"]);
+}
+
+#[tokio::test]
 async fn mcp_and_tool_search_follow_direct_and_deferred_tool_exposure() {
     let direct_mcp = probe_with(
         |_| {},

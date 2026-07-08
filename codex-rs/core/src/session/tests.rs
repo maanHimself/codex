@@ -8653,7 +8653,7 @@ async fn shutdown_without_active_turn_keeps_active_goal_active() -> anyhow::Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn active_goal_continuation_runs_again_after_no_tool_turn() -> anyhow::Result<()> {
+async fn active_goal_does_not_auto_continue_after_turn() -> anyhow::Result<()> {
     let server = start_mock_server().await;
     let mut builder = test_codex().with_config(|config| {
         config
@@ -8678,23 +8678,6 @@ async fn active_goal_continuation_runs_again_after_no_tool_turn() -> anyhow::Res
                 ev_assistant_message("msg-1", "Draft ready."),
                 ev_completed("resp-2"),
             ]),
-            sse(vec![
-                ev_assistant_message("msg-2", "I am still working on the benchmark note."),
-                ev_completed("resp-3"),
-            ]),
-            sse(vec![
-                ev_response_created("resp-4"),
-                ev_function_call(
-                    "call-complete-goal",
-                    "update_goal",
-                    r#"{"status":"complete"}"#,
-                ),
-                ev_completed("resp-4"),
-            ]),
-            sse(vec![
-                ev_assistant_message("msg-3", "Goal complete."),
-                ev_completed("resp-5"),
-            ]),
         ],
     )
     .await;
@@ -8713,27 +8696,34 @@ async fn active_goal_continuation_runs_again_after_no_tool_turn() -> anyhow::Res
         })
         .await?;
 
-    let mut completed_turns = 0;
     tokio::time::timeout(std::time::Duration::from_secs(8), async {
         loop {
             let event = test.codex.next_event().await?;
             if matches!(event.msg, EventMsg::TurnComplete(_)) {
-                completed_turns += 1;
-                if completed_turns == 3 {
-                    return anyhow::Ok(());
-                }
+                return anyhow::Ok(());
             }
         }
     })
     .await??;
 
-    let goal_context_text = responses
-        .requests()
-        .into_iter()
-        .flat_map(|request| request.message_input_texts("user"))
-        .find(|text| text.contains("<codex_internal_context source=\"goal\">"))
-        .expect("goal context message should be present");
-    assert!(goal_context_text.contains("Continue working toward the active thread goal."));
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        2,
+        responses.requests().len(),
+        "active goals should not auto-start an idle continuation turn"
+    );
+
+    let state_db = codex_state::StateRuntime::init(
+        test.config.sqlite_home.clone(),
+        test.config.model_provider_id.clone(),
+    )
+    .await?;
+    let persisted_goal = state_db
+        .thread_goals()
+        .get_thread_goal(test.session_configured.thread_id)
+        .await?
+        .expect("goal should remain persisted");
+    assert_eq!(codex_state::ThreadGoalStatus::Active, persisted_goal.status);
 
     Ok(())
 }

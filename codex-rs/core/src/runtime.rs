@@ -18,6 +18,7 @@ use codex_protocol::error::Result as CodexResult;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::AgentStatus;
+use codex_protocol::protocol::AdditionalContextEntry;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::SessionSource;
@@ -319,6 +320,21 @@ impl CodexRuntimeThread {
             .await
     }
 
+    pub async fn start_user_turn_with_additional_context(
+        &self,
+        input_text: String,
+        client_user_message_id: Option<String>,
+        additional_context: BTreeMap<String, AdditionalContextEntry>,
+    ) -> CodexResult<String> {
+        self.thread
+            .submit_user_input_with_client_user_message_id(
+                user_text_op_with_additional_context(input_text, additional_context),
+                /*trace*/ None,
+                client_user_message_id,
+            )
+            .await
+    }
+
     pub async fn steer_user_turn(
         &self,
         input_text: String,
@@ -428,12 +444,19 @@ impl CodexRuntimeThread {
 }
 
 fn user_text_op(input_text: String) -> Op {
+    user_text_op_with_additional_context(input_text, BTreeMap::new())
+}
+
+fn user_text_op_with_additional_context(
+    input_text: String,
+    additional_context: BTreeMap<String, AdditionalContextEntry>,
+) -> Op {
     Op::UserInput {
         items: vec![user_text_input(input_text)],
         environments: Some(Vec::new()),
         final_output_json_schema: None,
         responsesapi_client_metadata: None,
-        additional_context: BTreeMap::new(),
+        additional_context,
         thread_settings: Default::default(),
     }
 }
