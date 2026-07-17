@@ -25,7 +25,6 @@ use codex_exec_server::Environment;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
-use codex_protocol::prompt_overrides;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use dunce::canonicalize as normalize_path;
 use std::io;
@@ -135,11 +134,7 @@ impl<'a> AgentsMdManager<'a> {
             if !output.is_empty() {
                 output.push_str("\n\n");
             }
-            let hierarchical_message = prompt_overrides::resolve_prompt_str(
-                prompt_overrides::AGENTS_MD_HIERARCHICAL_MESSAGE,
-                HIERARCHICAL_AGENTS_MESSAGE,
-            );
-            output.push_str(&hierarchical_message);
+            output.push_str(HIERARCHICAL_AGENTS_MESSAGE);
         }
 
         if !output.is_empty() {

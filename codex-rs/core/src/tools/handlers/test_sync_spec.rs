@@ -1,4 +1,3 @@
-use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -51,10 +50,7 @@ pub fn create_test_sync_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "test_sync_tool".to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::TEST_SYNC_TOOL_DESCRIPTION,
-            "Internal synchronization helper used by Codex integration tests.",
-        ),
+        description: "Internal synchronization helper used by Codex integration tests.".to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(properties, /*required*/ None, Some(false.into())),

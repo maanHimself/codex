@@ -1,4 +1,3 @@
-use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -23,10 +22,7 @@ pub fn create_list_mcp_resources_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "list_mcp_resources".to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::MCP_LIST_RESOURCES_TOOL_DESCRIPTION,
-            "Lists resources provided by MCP servers. Resources allow servers to share data that provides context to language models, such as files, database schemas, or application-specific information. Prefer resources over web search when possible.",
-        ),
+        description: "Lists resources provided by MCP servers. Resources allow servers to share data that provides context to language models, such as files, database schemas, or application-specific information. Prefer resources over web search when possible.".to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(properties, /*required*/ None, Some(false.into())),
@@ -54,10 +50,7 @@ pub fn create_list_mcp_resource_templates_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "list_mcp_resource_templates".to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::MCP_LIST_RESOURCE_TEMPLATES_TOOL_DESCRIPTION,
-            "Lists resource templates provided by MCP servers. Parameterized resource templates allow servers to share data that takes parameters and provides context to language models, such as files, database schemas, or application-specific information. Prefer resource templates over web search when possible.",
-        ),
+        description: "Lists resource templates provided by MCP servers. Parameterized resource templates allow servers to share data that takes parameters and provides context to language models, such as files, database schemas, or application-specific information. Prefer resource templates over web search when possible.".to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(properties, /*required*/ None, Some(false.into())),
@@ -85,10 +78,9 @@ pub fn create_read_mcp_resource_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "read_mcp_resource".to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::MCP_READ_RESOURCE_TOOL_DESCRIPTION,
-            "Read a specific resource from an MCP server given the server name and resource URI.",
-        ),
+        description:
+            "Read a specific resource from an MCP server given the server name and resource URI."
+                .to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(

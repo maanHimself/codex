@@ -15,7 +15,6 @@ use codex_protocol::dynamic_tools::DynamicToolCallRequest;
 use codex_protocol::dynamic_tools::DynamicToolResponse;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::FunctionCallOutputContentItem;
-use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::DynamicToolCallResponseEvent;
 use codex_protocol::protocol::EventMsg;
 use codex_tools::ResponsesApiNamespace;
@@ -140,10 +139,7 @@ impl CoreToolRuntime for DynamicToolHandler {
             self.spec(),
             Some(ToolSearchSourceInfo {
                 name: "Dynamic tools".to_string(),
-                description: Some(prompt_overrides::resolve_prompt(
-                    prompt_overrides::DYNAMIC_TOOLS_SOURCE_DESCRIPTION,
-                    "Tools provided by the current Codex thread.",
-                )),
+                description: Some("Tools provided by the current Codex thread.".to_string()),
             }),
         )
     }

@@ -15,7 +15,6 @@ use codex_config::merge_toml_values;
 use codex_config::project_root_markers_from_config;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::LOCAL_FS;
-use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::Product;
 use codex_protocol::protocol::SkillScope;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -643,20 +642,20 @@ async fn parse_skill_file(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| default_skill_name(path));
     let name = namespaced_skill_name(fs, path, &base_name).await;
-    let mut description = parsed
+    let description = parsed
         .description
         .as_deref()
         .map(sanitize_single_line)
         .unwrap_or_default();
-    let mut short_description = parsed
+    let short_description = parsed
         .metadata
         .short_description
         .as_deref()
         .map(sanitize_single_line)
         .filter(|value| !value.is_empty());
     let LoadedSkillMetadata {
-        mut interface,
-        mut dependencies,
+        interface,
+        dependencies,
         policy,
     } = load_skill_metadata(fs, path, plugin_root).await;
 
@@ -668,45 +667,6 @@ async fn parse_skill_file(
             MAX_SHORT_DESCRIPTION_LEN,
             "metadata.short-description",
         )?;
-    }
-
-    if let Some(override_description) = prompt_override_single_line(dynamic_skill_key(
-        prompt_overrides::SKILL_DESCRIPTION_PREFIX,
-        &name,
-    )) {
-        description = override_description;
-    }
-    if let Some(override_short_description) = prompt_override_single_line(dynamic_skill_key(
-        prompt_overrides::SKILL_SHORT_DESCRIPTION_PREFIX,
-        &name,
-    )) {
-        short_description = Some(override_short_description);
-    }
-    if let Some(interface) = interface.as_mut() {
-        if let Some(override_short_description) = prompt_override_single_line(dynamic_skill_key(
-            prompt_overrides::SKILL_INTERFACE_SHORT_DESCRIPTION_PREFIX,
-            &name,
-        )) {
-            interface.short_description = Some(override_short_description);
-        }
-        if let Some(override_default_prompt) = prompt_overrides::prompt_override(
-            &dynamic_skill_key(prompt_overrides::SKILL_DEFAULT_PROMPT_PREFIX, &name),
-        ) {
-            interface.default_prompt = Some(override_default_prompt);
-        }
-    }
-    if let Some(dependencies) = dependencies.as_mut() {
-        for tool in &mut dependencies.tools {
-            let key = format!(
-                "{}{}:{}",
-                prompt_overrides::SKILL_DEPENDENCY_DESCRIPTION_PREFIX,
-                name,
-                tool.value
-            );
-            if let Some(override_description) = prompt_override_single_line(key) {
-                tool.description = Some(override_description);
-            }
-        }
     }
 
     let resolved_path = canonicalize_for_skill_identity(path);
@@ -1011,16 +971,6 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 
 fn sanitize_single_line(raw: &str) -> String {
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn dynamic_skill_key(prefix: &str, name: &str) -> String {
-    format!("{prefix}{name}")
-}
-
-fn prompt_override_single_line(key: String) -> Option<String> {
-    prompt_overrides::prompt_override(&key)
-        .map(|value| sanitize_single_line(&value))
-        .filter(|value| !value.is_empty())
 }
 
 fn validate_len(

@@ -1,6 +1,5 @@
 use crate::memory_extensions_root;
 use codex_protocol::openai_models::ModelInfo;
-use codex_protocol::prompt_overrides;
 use codex_utils_output_truncation::TruncationPolicy;
 use codex_utils_output_truncation::truncate_text;
 use codex_utils_template::Template;
@@ -10,41 +9,25 @@ use tracing::warn;
 
 static CONSOLIDATION_PROMPT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
     parse_embedded_template(
-        prompt_overrides::resolve_prompt_str(
-            prompt_overrides::MEMORY_CONSOLIDATION,
-            include_str!("../templates/memories/consolidation.md"),
-        )
-        .as_ref(),
+        include_str!("../templates/memories/consolidation.md"),
         "memories/consolidation.md",
     )
 });
 static STAGE_ONE_INPUT_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
     parse_embedded_template(
-        prompt_overrides::resolve_prompt_str(
-            prompt_overrides::MEMORY_STAGE_ONE_INPUT,
-            include_str!("../templates/memories/stage_one_input.md"),
-        )
-        .as_ref(),
+        include_str!("../templates/memories/stage_one_input.md"),
         "memories/stage_one_input.md",
     )
 });
 static MEMORY_EXTENSIONS_FOLDER_STRUCTURE_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
     parse_embedded_template(
-        prompt_overrides::resolve_prompt_str(
-            prompt_overrides::MEMORY_EXTENSIONS_FOLDER_STRUCTURE,
-            crate::prompt_blocks::EXTENSIONS_FOLDER_STRUCTURE,
-        )
-        .as_ref(),
+        crate::prompt_blocks::EXTENSIONS_FOLDER_STRUCTURE,
         "memories/extensions_folder_structure.md",
     )
 });
 static MEMORY_EXTENSIONS_PRIMARY_INPUTS_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
     parse_embedded_template(
-        prompt_overrides::resolve_prompt_str(
-            prompt_overrides::MEMORY_EXTENSIONS_PRIMARY_INPUTS,
-            crate::prompt_blocks::EXTENSIONS_PRIMARY_INPUTS,
-        )
-        .as_ref(),
+        crate::prompt_blocks::EXTENSIONS_PRIMARY_INPUTS,
         "memories/extensions_primary_inputs.md",
     )
 });

@@ -22,7 +22,6 @@ use crate::config_types::ReasoningSummary;
 use crate::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use crate::config_types::ServiceTier;
 use crate::config_types::Verbosity;
-use crate::prompt_overrides;
 
 const PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
 pub const SPEED_TIER_FAST: &str = "fast";
@@ -382,15 +381,6 @@ impl ModelInfo {
             let personality_message = model_messages
                 .get_personality_message(personality)
                 .unwrap_or_default();
-            let template = prompt_overrides::prompt_override(&format!(
-                "{}{}",
-                prompt_overrides::MODEL_INSTRUCTIONS_TEMPLATE_PREFIX,
-                self.slug
-            ))
-            .or_else(|| {
-                prompt_overrides::prompt_override(prompt_overrides::MODEL_INSTRUCTIONS_TEMPLATE)
-            })
-            .unwrap_or_else(|| template.clone());
             template.replace(PERSONALITY_PLACEHOLDER, personality_message.as_str())
         } else if let Some(personality) = personality {
             warn!(
@@ -398,20 +388,10 @@ impl ModelInfo {
                 %personality,
                 "Model personality requested but model_messages is missing, falling back to base instructions."
             );
-            self.resolved_base_instructions()
+            self.base_instructions.clone()
         } else {
-            self.resolved_base_instructions()
+            self.base_instructions.clone()
         }
-    }
-
-    fn resolved_base_instructions(&self) -> String {
-        prompt_overrides::prompt_override(&format!(
-            "{}{}",
-            prompt_overrides::MODEL_BASE_INSTRUCTIONS_PREFIX,
-            self.slug
-        ))
-        .or_else(|| prompt_overrides::prompt_override(prompt_overrides::MODEL_BASE_INSTRUCTIONS))
-        .unwrap_or_else(|| self.base_instructions.clone())
     }
 }
 

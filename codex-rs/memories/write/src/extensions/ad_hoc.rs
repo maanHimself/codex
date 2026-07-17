@@ -1,16 +1,8 @@
 use crate::memory_extensions_root;
-use codex_protocol::prompt_overrides;
 use std::path::Path;
 
 pub(super) const INSTRUCTIONS: &str =
     include_str!("../../templates/extensions/ad_hoc/instructions.md");
-
-fn instructions() -> String {
-    prompt_overrides::resolve_prompt(
-        prompt_overrides::MEMORY_EXTENSION_AD_HOC_INSTRUCTIONS,
-        INSTRUCTIONS,
-    )
-}
 
 pub(super) async fn seed_instructions(memory_root: &Path) -> std::io::Result<()> {
     let extension_root = memory_extensions_root(memory_root).join("ad_hoc");
@@ -24,8 +16,7 @@ pub(super) async fn seed_instructions(memory_root: &Path) -> std::io::Result<()>
         .await
     {
         Ok(mut file) => {
-            let instructions = instructions();
-            tokio::io::AsyncWriteExt::write_all(&mut file, instructions.as_bytes()).await
+            tokio::io::AsyncWriteExt::write_all(&mut file, INSTRUCTIONS.as_bytes()).await
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
         Err(err) => Err(err),

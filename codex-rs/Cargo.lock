@@ -2444,9 +2444,6 @@ dependencies = [
 [[package]]
 name = "codex-collaboration-mode-templates"
 version = "0.0.0"
-dependencies = [
- "codex-protocol",
-]
 
 [[package]]
 name = "codex-config"
@@ -3222,7 +3219,6 @@ dependencies = [
  "codex-extension-api",
  "codex-features",
  "codex-otel",
- "codex-protocol",
  "codex-tools",
  "codex-utils-absolute-path",
  "codex-utils-output-truncation",

@@ -3,7 +3,6 @@
 //! These specs expose goal read/update primitives to the model while keeping
 //! usage accounting system-managed.
 
-use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -17,10 +16,8 @@ pub const UPDATE_GOAL_TOOL_NAME: &str = "update_goal";
 pub fn create_get_goal_tool() -> ToolSpec {
     ToolSpec::Function(ResponsesApiTool {
         name: GET_GOAL_TOOL_NAME.to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::GET_GOAL_TOOL_DESCRIPTION,
-            "Get the current goal for this thread, including status, budgets, token and elapsed-time usage, and remaining token budget.",
-        ),
+        description: "Get the current goal for this thread, including status, budgets, token and elapsed-time usage, and remaining token budget."
+            .to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(BTreeMap::new(), Some(Vec::new()), Some(false.into())),
@@ -45,16 +42,12 @@ pub fn create_create_goal_tool() -> ToolSpec {
             )),
         ),
     ]);
-    let built_in_description = format!(
-        r#"Create a goal only when explicitly requested by the user or system/developer instructions; do not infer goals from ordinary tasks.
-Set token_budget only when an explicit token budget is requested. Fails if a goal exists; use {UPDATE_GOAL_TOOL_NAME} only for status."#
-    );
 
     ToolSpec::Function(ResponsesApiTool {
         name: CREATE_GOAL_TOOL_NAME.to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::CREATE_GOAL_TOOL_DESCRIPTION,
-            &built_in_description,
+        description: format!(
+            r#"Create a goal only when explicitly requested by the user or system/developer instructions; do not infer goals from ordinary tasks.
+Set token_budget only when an explicit token budget is requested. Fails if a goal exists; use {UPDATE_GOAL_TOOL_NAME} only for status."#
         ),
         strict: false,
         defer_loading: None,
@@ -86,9 +79,7 @@ pub fn create_update_goal_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: UPDATE_GOAL_TOOL_NAME.to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::UPDATE_GOAL_TOOL_DESCRIPTION,
-            r#"Update the existing goal status for a running customer procedure.
+        description: r#"Update the existing goal status for a running customer procedure.
 Use `active` only to resume a paused procedure.
 Use `paused` when the customer asks to stop, continue later, or switch away before the procedure is complete.
 Use `complete` only when the authored procedure is actually complete and no required work remains.
@@ -96,8 +87,8 @@ Use `blocked` only for a real impasse that cannot be resolved by asking the cust
 Do not use `blocked` merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification.
 Do not mark a goal complete merely because its budget is nearly exhausted or because you are stopping work.
 You cannot set budget_limited or usage_limited; those statuses are controlled by the system.
-When marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user. Do not report usage for unbudgeted goals."#,
-        ),
+When marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user. Do not report usage for unbudgeted goals."#
+            .to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(

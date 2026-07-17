@@ -1,5 +1,4 @@
 use crate::MEMORY_TOOL_DEVELOPER_INSTRUCTIONS_SUMMARY_TOKEN_LIMIT;
-use codex_protocol::prompt_overrides;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_output_truncation::TruncationPolicy;
 use codex_utils_output_truncation::truncate_text;
@@ -9,11 +8,7 @@ use tokio::fs;
 
 static MEMORY_TOOL_DEVELOPER_INSTRUCTIONS_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
     parse_embedded_template(
-        prompt_overrides::resolve_prompt_str(
-            prompt_overrides::MEMORY_READ_PATH,
-            include_str!("../templates/memories/read_path.md"),
-        )
-        .as_ref(),
+        include_str!("../templates/memories/read_path.md"),
         "memories/read_path.md",
     )
 });

@@ -6,7 +6,6 @@ use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::format_allow_prefixes;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::NetworkSandboxPolicy;
-use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::GranularApprovalConfig;
 use codex_protocol::protocol::NetworkAccess;
@@ -33,27 +32,15 @@ const SANDBOX_MODE_WORKSPACE_WRITE: &str =
 const SANDBOX_MODE_READ_ONLY: &str = include_str!("prompts/permissions/sandbox_mode/read_only.md");
 
 static SANDBOX_MODE_DANGER_FULL_ACCESS_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
-    let prompt = prompt_overrides::resolve_prompt_str(
-        prompt_overrides::PERMISSIONS_SANDBOX_DANGER_FULL_ACCESS,
-        SANDBOX_MODE_DANGER_FULL_ACCESS,
-    );
-    Template::parse(prompt.trim_end())
+    Template::parse(SANDBOX_MODE_DANGER_FULL_ACCESS.trim_end())
         .unwrap_or_else(|err| panic!("danger-full-access sandbox template must parse: {err}"))
 });
 static SANDBOX_MODE_WORKSPACE_WRITE_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
-    let prompt = prompt_overrides::resolve_prompt_str(
-        prompt_overrides::PERMISSIONS_SANDBOX_WORKSPACE_WRITE,
-        SANDBOX_MODE_WORKSPACE_WRITE,
-    );
-    Template::parse(prompt.trim_end())
+    Template::parse(SANDBOX_MODE_WORKSPACE_WRITE.trim_end())
         .unwrap_or_else(|err| panic!("workspace-write sandbox template must parse: {err}"))
 });
 static SANDBOX_MODE_READ_ONLY_TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
-    let prompt = prompt_overrides::resolve_prompt_str(
-        prompt_overrides::PERMISSIONS_SANDBOX_READ_ONLY,
-        SANDBOX_MODE_READ_ONLY,
-    );
-    Template::parse(prompt.trim_end())
+    Template::parse(SANDBOX_MODE_READ_ONLY.trim_end())
         .unwrap_or_else(|err| panic!("read-only sandbox template must parse: {err}"))
 });
 
@@ -214,15 +201,9 @@ fn approval_text(
     };
     let on_request_instructions = || {
         let on_request_rule = if exec_permission_approvals_enabled {
-            prompt_overrides::resolve_prompt(
-                prompt_overrides::PERMISSIONS_APPROVAL_ON_REQUEST_PERMISSION,
-                APPROVAL_POLICY_ON_REQUEST_RULE_REQUEST_PERMISSION,
-            )
+            APPROVAL_POLICY_ON_REQUEST_RULE_REQUEST_PERMISSION.to_string()
         } else {
-            prompt_overrides::resolve_prompt(
-                prompt_overrides::PERMISSIONS_APPROVAL_ON_REQUEST,
-                APPROVAL_POLICY_ON_REQUEST_RULE,
-            )
+            APPROVAL_POLICY_ON_REQUEST_RULE.to_string()
         };
         let mut sections = vec![on_request_rule];
         if request_permissions_tool_enabled {
@@ -236,24 +217,11 @@ fn approval_text(
         sections.join("\n\n")
     };
     let text = match approval_policy {
-        AskForApproval::Never => prompt_overrides::resolve_prompt(
-            prompt_overrides::PERMISSIONS_APPROVAL_NEVER,
-            APPROVAL_POLICY_NEVER,
-        ),
-        AskForApproval::UnlessTrusted => with_request_permissions_tool(
-            prompt_overrides::resolve_prompt_str(
-                prompt_overrides::PERMISSIONS_APPROVAL_UNLESS_TRUSTED,
-                APPROVAL_POLICY_UNLESS_TRUSTED,
-            )
-            .as_ref(),
-        ),
-        AskForApproval::OnFailure => with_request_permissions_tool(
-            prompt_overrides::resolve_prompt_str(
-                prompt_overrides::PERMISSIONS_APPROVAL_ON_FAILURE,
-                APPROVAL_POLICY_ON_FAILURE,
-            )
-            .as_ref(),
-        ),
+        AskForApproval::Never => APPROVAL_POLICY_NEVER.to_string(),
+        AskForApproval::UnlessTrusted => {
+            with_request_permissions_tool(APPROVAL_POLICY_UNLESS_TRUSTED)
+        }
+        AskForApproval::OnFailure => with_request_permissions_tool(APPROVAL_POLICY_ON_FAILURE),
         AskForApproval::OnRequest => on_request_instructions(),
         AskForApproval::Granular(granular_config) => granular_instructions(
             granular_config,
@@ -266,11 +234,7 @@ fn approval_text(
     if approvals_reviewer == ApprovalsReviewer::AutoReview
         && approval_policy != AskForApproval::Never
     {
-        let suffix = prompt_overrides::resolve_prompt(
-            prompt_overrides::PERMISSIONS_AUTO_REVIEW_SUFFIX,
-            AUTO_REVIEW_APPROVAL_SUFFIX,
-        );
-        format!("{text}\n\n{suffix}")
+        format!("{text}\n\n{AUTO_REVIEW_APPROVAL_SUFFIX}")
     } else {
         text
     }
@@ -333,18 +297,12 @@ fn approved_command_prefixes_text(exec_policy: &Policy) -> Option<String> {
         .filter(|prefixes| !prefixes.is_empty())
 }
 
-fn granular_prompt_intro_text() -> String {
-    prompt_overrides::resolve_prompt(
-        prompt_overrides::PERMISSIONS_GRANULAR_INTRO,
-        "# Approval Requests\n\nApproval policy is `granular`. Categories set to `false` are automatically rejected instead of prompting the user.",
-    )
+fn granular_prompt_intro_text() -> &'static str {
+    "# Approval Requests\n\nApproval policy is `granular`. Categories set to `false` are automatically rejected instead of prompting the user."
 }
 
-fn request_permissions_tool_prompt_section() -> String {
-    prompt_overrides::resolve_prompt(
-        prompt_overrides::PERMISSIONS_REQUEST_TOOL_SECTION,
-        "# request_permissions Tool\n\nThe built-in `request_permissions` tool is available in this session. Invoke it when you need to request additional `network` or `file_system` permissions before later shell-like commands need them. Request only the specific permissions required for the task.",
-    )
+fn request_permissions_tool_prompt_section() -> &'static str {
+    "# request_permissions Tool\n\nThe built-in `request_permissions` tool is available in this session. Invoke it when you need to request additional `network` or `file_system` permissions before later shell-like commands need them. Request only the specific permissions required for the task."
 }
 
 fn granular_instructions(
@@ -387,7 +345,7 @@ fn granular_instructions(
         .map(|&(_, category)| format!("- {category}"))
         .collect::<Vec<_>>();
 
-    let mut sections = vec![granular_prompt_intro_text()];
+    let mut sections = vec![granular_prompt_intro_text().to_string()];
 
     if !prompted_categories.is_empty() {
         sections.push(format!(
@@ -403,14 +361,11 @@ fn granular_instructions(
     }
 
     if shell_permission_requests_available {
-        sections.push(prompt_overrides::resolve_prompt(
-            prompt_overrides::PERMISSIONS_APPROVAL_ON_REQUEST_PERMISSION,
-            APPROVAL_POLICY_ON_REQUEST_RULE_REQUEST_PERMISSION,
-        ));
+        sections.push(APPROVAL_POLICY_ON_REQUEST_RULE_REQUEST_PERMISSION.to_string());
     }
 
     if request_permissions_tool_prompts_allowed {
-        sections.push(request_permissions_tool_prompt_section());
+        sections.push(request_permissions_tool_prompt_section().to_string());
     }
 
     if let Some(prefixes) = approved_command_prefixes_text(exec_policy) {

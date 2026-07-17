@@ -1,4 +1,3 @@
-use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::LIST_AVAILABLE_PLUGINS_TO_INSTALL_TOOL_NAME;
 use codex_tools::REQUEST_PLUGIN_INSTALL_TOOL_NAME;
@@ -32,12 +31,9 @@ pub(crate) fn create_request_plugin_install_tool() -> ToolSpec {
         ),
     ]);
 
-    let built_in_description = format!(
+    let description = format!(
         "# Request plugin/connector install\n\nUse this tool only after `{LIST_AVAILABLE_PLUGINS_TO_INSTALL_TOOL_NAME}` returns a plugin or connector that exactly matches the user's explicit request.\n\nDo not use it for adjacent capabilities, broad recommendations, or tools that merely seem useful. Pass the returned `tool_type` through directly, and pass the returned `id` as `tool_id`.\n\nIMPORTANT: DO NOT call this tool in parallel with other tools."
     );
-    let description =
-        prompt_overrides::prompt_override(prompt_overrides::REQUEST_PLUGIN_INSTALL_DESCRIPTION)
-            .unwrap_or(built_in_description);
 
     ToolSpec::Function(ResponsesApiTool {
         name: REQUEST_PLUGIN_INSTALL_TOOL_NAME.to_string(),

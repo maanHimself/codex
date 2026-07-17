@@ -1,4 +1,3 @@
-use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -42,13 +41,11 @@ pub fn create_update_plan_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "update_plan".to_string(),
-        description: prompt_overrides::resolve_prompt(
-            prompt_overrides::PLAN_TOOL_DESCRIPTION,
-            r#"Updates the task plan.
+        description: r#"Updates the task plan.
 Provide an optional explanation and a list of plan items, each with a step and status.
 At most one step can be in_progress at a time.
-"#,
-        ),
+"#
+        .to_string(),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(

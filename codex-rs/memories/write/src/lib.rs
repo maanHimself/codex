@@ -76,8 +76,6 @@ signal to remove stale memories derived only from those resources.
 }
 
 mod stage_one {
-    use codex_protocol::prompt_overrides;
-
     pub(super) const MODEL: &str = "gpt-5.4-mini";
     pub(super) const REASONING_EFFORT: codex_protocol::openai_models::ReasoningEffort =
         codex_protocol::openai_models::ReasoningEffort::Low;
@@ -89,10 +87,6 @@ mod stage_one {
 
     /// Prompt used for phase 1 extraction.
     pub(super) const PROMPT: &str = include_str!("../templates/memories/stage_one_system.md");
-
-    pub(super) fn prompt() -> String {
-        prompt_overrides::resolve_prompt(prompt_overrides::MEMORY_STAGE_ONE_SYSTEM, PROMPT)
-    }
 
     /// Fallback stage-1 rollout truncation limit (tokens) when model metadata
     /// does not include a valid context window.

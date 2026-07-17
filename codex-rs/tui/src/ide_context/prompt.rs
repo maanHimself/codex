@@ -3,7 +3,6 @@
 use codex_app_server_protocol::ByteRange;
 use codex_app_server_protocol::TextElement;
 use codex_app_server_protocol::UserInput;
-use codex_protocol::prompt_overrides;
 
 use super::IdeContext;
 
@@ -16,13 +15,6 @@ const MAX_OPEN_TABS_CHARS: usize = 20_000;
 // one surface replay cleanly in the others.
 const PROMPT_REQUEST_BEGIN: &str = "## My request for Codex:";
 
-fn prompt_request_begin() -> String {
-    prompt_overrides::resolve_prompt(
-        prompt_overrides::IDE_CONTEXT_REQUEST_MARKER,
-        PROMPT_REQUEST_BEGIN,
-    )
-}
-
 pub(crate) fn apply_ide_context_to_user_input(
     context: &IdeContext,
     items: &mut Vec<UserInput>,
@@ -31,7 +23,7 @@ pub(crate) fn apply_ide_context_to_user_input(
         return false;
     };
 
-    let prefix = format!("{}\n{}\n", context_text, prompt_request_begin());
+    let prefix = format!("{context_text}\n{PROMPT_REQUEST_BEGIN}\n");
     if let Some(text_index) = items
         .iter()
         .position(|item| matches!(item, UserInput::Text { .. }))
@@ -71,12 +63,11 @@ pub(crate) fn has_prompt_context(context: &IdeContext) -> bool {
 }
 
 pub(crate) fn extract_prompt_request_with_offset(message: &str) -> (&str, usize) {
-    let prompt_request_begin = prompt_request_begin();
-    let Some((before_request, request)) = message.rsplit_once(prompt_request_begin.as_str()) else {
+    let Some((before_request, request)) = message.rsplit_once(PROMPT_REQUEST_BEGIN) else {
         return (message, 0);
     };
 
-    let request_start = before_request.len() + prompt_request_begin.len();
+    let request_start = before_request.len() + PROMPT_REQUEST_BEGIN.len();
     let trimmed_request = request.trim();
     let leading_trimmed_len = request.len() - request.trim_start().len();
     (trimmed_request, request_start + leading_trimmed_len)

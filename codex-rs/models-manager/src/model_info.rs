@@ -8,7 +8,6 @@ use codex_protocol::openai_models::TruncationMode;
 use codex_protocol::openai_models::TruncationPolicyConfig;
 use codex_protocol::openai_models::WebSearchToolType;
 use codex_protocol::openai_models::default_input_modalities;
-use codex_protocol::prompt_overrides;
 
 use crate::config::ModelsManagerConfig;
 use codex_utils_output_truncation::approx_bytes_for_tokens;
@@ -81,10 +80,7 @@ pub fn model_info_from_slug(slug: &str) -> ModelInfo {
         default_service_tier: None,
         availability_nux: None,
         upgrade: None,
-        base_instructions: prompt_overrides::resolve_prompt(
-            prompt_overrides::MODELS_MANAGER_BASE_INSTRUCTIONS,
-            BASE_INSTRUCTIONS,
-        ),
+        base_instructions: BASE_INSTRUCTIONS.to_string(),
         model_messages: local_personality_messages_for_slug(slug),
         supports_reasoning_summaries: false,
         default_reasoning_summary: ReasoningSummary::Auto,
@@ -112,26 +108,12 @@ fn local_personality_messages_for_slug(slug: &str) -> Option<ModelMessages> {
     match slug {
         "gpt-5.2-codex" | "exp-codex-personality" => Some(ModelMessages {
             instructions_template: Some(format!(
-                "{}\n\n{PERSONALITY_PLACEHOLDER}\n\n{}",
-                prompt_overrides::resolve_prompt(
-                    prompt_overrides::MODELS_MANAGER_PERSONALITY_HEADER,
-                    DEFAULT_PERSONALITY_HEADER,
-                ),
-                prompt_overrides::resolve_prompt(
-                    prompt_overrides::MODELS_MANAGER_BASE_INSTRUCTIONS,
-                    BASE_INSTRUCTIONS,
-                ),
+                "{DEFAULT_PERSONALITY_HEADER}\n\n{PERSONALITY_PLACEHOLDER}\n\n{BASE_INSTRUCTIONS}"
             )),
             instructions_variables: Some(ModelInstructionsVariables {
                 personality_default: Some(String::new()),
-                personality_friendly: Some(prompt_overrides::resolve_prompt(
-                    prompt_overrides::MODELS_MANAGER_PERSONALITY_FRIENDLY,
-                    LOCAL_FRIENDLY_TEMPLATE,
-                )),
-                personality_pragmatic: Some(prompt_overrides::resolve_prompt(
-                    prompt_overrides::MODELS_MANAGER_PERSONALITY_PRAGMATIC,
-                    LOCAL_PRAGMATIC_TEMPLATE,
-                )),
+                personality_friendly: Some(LOCAL_FRIENDLY_TEMPLATE.to_string()),
+                personality_pragmatic: Some(LOCAL_PRAGMATIC_TEMPLATE.to_string()),
             }),
         }),
         _ => None,

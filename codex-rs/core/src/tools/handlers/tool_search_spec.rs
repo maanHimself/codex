@@ -1,4 +1,3 @@
-use codex_protocol::prompt_overrides;
 use codex_tools::JsonSchema;
 use codex_tools::TOOL_SEARCH_TOOL_NAME;
 use codex_tools::ToolSearchSourceInfo;
@@ -47,11 +46,9 @@ pub(crate) fn create_tool_search_tool(
             .join("\n")
     };
 
-    let built_in_description = format!(
+    let description = format!(
         "# Tool discovery\n\nSearches over deferred tool metadata with BM25 and exposes matching tools for the next model call.\n\nYou have access to tools from the following sources:\n{source_descriptions}\nSome of the tools may not have been provided to you upfront, and you should use this tool (`{TOOL_SEARCH_TOOL_NAME}`) to search for the required tools. For MCP tool discovery, always use `{TOOL_SEARCH_TOOL_NAME}` instead of `list_mcp_resources` or `list_mcp_resource_templates`."
     );
-    let description = prompt_overrides::prompt_override(prompt_overrides::TOOL_SEARCH_DESCRIPTION)
-        .unwrap_or(built_in_description);
 
     ToolSpec::ToolSearch {
         execution: "client".to_string(),

@@ -1,5 +1,4 @@
 use super::ContextualUserFragment;
-use codex_protocol::prompt_overrides;
 use codex_protocol::protocol::REALTIME_CONVERSATION_CLOSE_TAG;
 use codex_protocol::protocol::REALTIME_CONVERSATION_OPEN_TAG;
 
@@ -35,10 +34,10 @@ impl ContextualUserFragment for RealtimeEndInstructions {
     }
 
     fn body(&self) -> String {
-        let instructions = prompt_overrides::resolve_prompt_str(
-            prompt_overrides::REALTIME_END_INSTRUCTIONS,
-            REALTIME_END_INSTRUCTIONS,
-        );
-        format!("\n{}\n\nReason: {}\n", instructions.trim(), self.reason)
+        format!(
+            "\n{}\n\nReason: {}\n",
+            REALTIME_END_INSTRUCTIONS.trim(),
+            self.reason
+        )
     }
 }

@@ -18,7 +18,6 @@ use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::prompt_overrides;
 use codex_tools::ResponsesApiNamespace;
 use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ResponsesApiTool;
@@ -273,10 +272,7 @@ fn imagegen_tool_spec() -> ToolSpec {
         description: default_namespace_description(IMAGE_GEN_NAMESPACE),
         tools: vec![ResponsesApiNamespaceTool::Function(ResponsesApiTool {
             name: IMAGEGEN_TOOL_NAME.to_string(),
-            description: prompt_overrides::resolve_prompt(
-                prompt_overrides::IMAGE_GENERATION_TOOL_DESCRIPTION,
-                IMAGEGEN_DESCRIPTION,
-            ),
+            description: IMAGEGEN_DESCRIPTION.to_string(),
             strict: false,
             parameters: parse_tool_input_schema(&Value::Object(input_schema))
                 .unwrap_or_else(|err| panic!("imagegen input schema should parse: {err}")),

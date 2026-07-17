@@ -1,5 +1,3 @@
-use codex_protocol::prompt_overrides;
-
 const BACKEND_PROMPT: &str = include_str!("../templates/realtime/backend_prompt.md");
 const DEFAULT_USER_FIRST_NAME: &str = "there";
 const USER_FIRST_NAME_PLACEHOLDER: &str = "{{ user_first_name }}";
@@ -20,7 +18,7 @@ pub(crate) fn prepare_realtime_backend_prompt(
         None => {}
     }
 
-    prompt_overrides::resolve_prompt_str(prompt_overrides::REALTIME_BACKEND_PROMPT, BACKEND_PROMPT)
+    BACKEND_PROMPT
         .trim_end()
         .replace(USER_FIRST_NAME_PLACEHOLDER, &current_user_first_name())
 }
