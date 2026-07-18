@@ -4,7 +4,6 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::handlers::ApplyPatchHandler;
 use crate::tools::handlers::CodeModeExecuteHandler;
 use crate::tools::handlers::CodeModeWaitHandler;
-use crate::tools::handlers::CreateGoalHandler;
 use crate::tools::handlers::DynamicToolHandler;
 use crate::tools::handlers::ExecCommandHandler;
 use crate::tools::handlers::ExecCommandHandlerOptions;
@@ -637,7 +636,6 @@ fn add_core_utility_tools(context: &CoreToolPlanContext<'_>, planned_tools: &mut
     }
     if goal_tools_enabled(turn_context) {
         planned_tools.add(GetGoalHandler);
-        planned_tools.add(CreateGoalHandler);
         planned_tools.add(UpdateGoalHandler);
     }
 

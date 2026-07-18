@@ -9,9 +9,8 @@ use crate::tools::registry::ToolExecutor;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 
-use super::CompletionBudgetReport;
-use super::format_goal_error;
 use super::goal_response;
+use super::procedure_read_error;
 
 pub struct GetGoalHandler;
 
@@ -38,11 +37,11 @@ impl ToolExecutor<ToolInvocation> for GetGoalHandler {
                 let goal = session
                     .get_thread_goal()
                     .await
-                    .map_err(|err| FunctionCallError::RespondToModel(format_goal_error(err)))?;
-                goal_response(goal, CompletionBudgetReport::Omit).map(boxed_tool_output)
+                    .map_err(procedure_read_error)?;
+                goal_response(goal).map(boxed_tool_output)
             }
             _ => Err(FunctionCallError::RespondToModel(
-                "get_goal handler received unsupported payload".to_string(),
+                "get_current_procedure received an unsupported payload".to_string(),
             )),
         }
     }

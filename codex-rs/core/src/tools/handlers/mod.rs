@@ -53,7 +53,6 @@ pub use apply_patch::ApplyPatchHandler;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::protocol::AskForApproval;
 pub use dynamic::DynamicToolHandler;
-pub use goal::CreateGoalHandler;
 pub use goal::GetGoalHandler;
 pub use goal::UpdateGoalHandler;
 pub use list_available_plugins_to_install::ListAvailablePluginsToInstallHandler;

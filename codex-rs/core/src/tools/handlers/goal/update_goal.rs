@@ -13,10 +13,10 @@ use codex_protocol::protocol::ThreadGoalStatus;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 
-use super::CompletionBudgetReport;
 use super::UpdateGoalArgs;
-use super::format_goal_error;
 use super::goal_response;
+use super::procedure_read_error;
+use super::procedure_update_error;
 
 pub struct UpdateGoalHandler;
 
@@ -45,7 +45,7 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
             ToolPayload::Function { arguments } => arguments,
             _ => {
                 return Err(FunctionCallError::RespondToModel(
-                    "update_goal handler received unsupported payload".to_string(),
+                    "update_procedure_status received an unsupported payload".to_string(),
                 ));
             }
         };
@@ -59,7 +59,17 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
                 | ThreadGoalStatus::Blocked
         ) {
             return Err(FunctionCallError::RespondToModel(
-                "update_goal can only set active, paused, complete, or blocked; budget_limited and usage_limited are controlled by the system"
+                "update_procedure_status accepts only active, paused, complete, or blocked"
+                    .to_string(),
+            ));
+        }
+        let current_procedure = session
+            .get_thread_goal()
+            .await
+            .map_err(procedure_read_error)?;
+        if current_procedure.is_none() {
+            return Err(FunctionCallError::RespondToModel(
+                "No current procedure is active. Activate a published procedure before updating its status."
                     .to_string(),
             ));
         }
@@ -68,7 +78,7 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
                 turn_context: turn.as_ref(),
             })
             .await
-            .map_err(|err| FunctionCallError::RespondToModel(format_goal_error(err)))?;
+            .map_err(procedure_update_error)?;
         let goal = session
             .set_thread_goal(
                 turn.as_ref(),
@@ -80,13 +90,8 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
                 },
             )
             .await
-            .map_err(|err| FunctionCallError::RespondToModel(format_goal_error(err)))?;
-        let completion_budget_report = if args.status == ThreadGoalStatus::Complete {
-            CompletionBudgetReport::Include
-        } else {
-            CompletionBudgetReport::Omit
-        };
-        goal_response(Some(goal), completion_budget_report).map(boxed_tool_output)
+            .map_err(procedure_update_error)?;
+        goal_response(Some(goal)).map(boxed_tool_output)
     }
 }
 

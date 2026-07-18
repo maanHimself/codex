@@ -371,13 +371,6 @@ where
                 self.event_emitter.clone(),
                 self.metrics.clone(),
             )),
-            Arc::new(GoalToolExecutor::create(
-                runtime.thread_id(),
-                Arc::clone(&self.state_dbs),
-                runtime.accounting_state(),
-                self.event_emitter.clone(),
-                self.metrics.clone(),
-            )),
             Arc::new(GoalToolExecutor::update(
                 runtime.thread_id(),
                 Arc::clone(&self.state_dbs),

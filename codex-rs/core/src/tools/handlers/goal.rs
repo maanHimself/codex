@@ -1,9 +1,8 @@
-//! Built-in model tool handlers for persisted thread goals.
+//! Built-in model tool handlers backed by persisted thread goals.
 //!
-//! The public tool contract intentionally splits goal creation from status
-//! updates: `create_goal` starts an active objective, while `update_goal`
-//! updates the model-managed procedure states. Budget and usage limit statuses
-//! remain system-managed.
+//! Customer-service sessions expose the persisted state to the model as the
+//! current procedure. Procedure activation is host-controlled; the model can
+//! only read the current procedure and update its status.
 
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::FunctionToolOutput;
@@ -13,20 +12,11 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Write as _;
 
-mod create_goal;
 mod get_goal;
 mod update_goal;
 
-pub use create_goal::CreateGoalHandler;
 pub use get_goal::GetGoalHandler;
 pub use update_goal::UpdateGoalHandler;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-struct CreateGoalArgs {
-    objective: String,
-    token_budget: Option<i64>,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,35 +26,24 @@ struct UpdateGoalArgs {
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GoalToolResponse {
-    goal: Option<ThreadGoal>,
-    remaining_tokens: Option<i64>,
-    completion_budget_report: Option<String>,
+struct ProcedureToolResponse {
+    procedure: Option<ProcedureToolState>,
 }
 
-#[derive(Clone, Copy)]
-enum CompletionBudgetReport {
-    Include,
-    Omit,
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcedureToolState {
+    objective: String,
+    status: ThreadGoalStatus,
 }
 
-impl GoalToolResponse {
-    fn new(goal: Option<ThreadGoal>, report_mode: CompletionBudgetReport) -> Self {
-        let remaining_tokens = goal.as_ref().and_then(|goal| {
-            goal.token_budget
-                .map(|budget| (budget - goal.tokens_used).max(0))
-        });
-        let completion_budget_report = match report_mode {
-            CompletionBudgetReport::Include => goal
-                .as_ref()
-                .filter(|goal| goal.status == ThreadGoalStatus::Complete)
-                .and_then(completion_budget_report),
-            CompletionBudgetReport::Omit => None,
-        };
+impl ProcedureToolResponse {
+    fn new(goal: Option<ThreadGoal>) -> Self {
         Self {
-            goal,
-            remaining_tokens,
-            completion_budget_report,
+            procedure: goal.map(|goal| ProcedureToolState {
+                objective: goal.objective,
+                status: goal.status,
+            }),
         }
     }
 }
@@ -77,38 +56,39 @@ fn format_goal_error(err: anyhow::Error) -> String {
     message
 }
 
-fn goal_response(
-    goal: Option<ThreadGoal>,
-    completion_budget_report: CompletionBudgetReport,
-) -> Result<FunctionToolOutput, FunctionCallError> {
-    let response =
-        serde_json::to_string_pretty(&GoalToolResponse::new(goal, completion_budget_report))
-            .map_err(|err| FunctionCallError::Fatal(err.to_string()))?;
+fn goal_response(goal: Option<ThreadGoal>) -> Result<FunctionToolOutput, FunctionCallError> {
+    let response = serde_json::to_string_pretty(&ProcedureToolResponse::new(goal))
+        .map_err(|err| FunctionCallError::Fatal(err.to_string()))?;
     Ok(FunctionToolOutput::from_text(response, Some(true)))
 }
 
-fn completion_budget_report(goal: &ThreadGoal) -> Option<String> {
-    goal.token_budget?;
-    Some(
-        "Goal achieved. This was a budgeted goal. Report final token usage from this tool result's structured `goal.tokensUsed` and `goal.tokenBudget` fields."
-            .to_string(),
+fn procedure_read_error(err: anyhow::Error) -> FunctionCallError {
+    procedure_state_error(
+        "read",
+        "The current procedure state could not be read because the procedure runtime failed. Do not assume that a procedure is active.",
+        err,
     )
 }
 
-#[cfg(test)]
-fn completion_budget_report_text() -> String {
-    completion_budget_report(&ThreadGoal {
-        thread_id: codex_protocol::ThreadId::new(),
-        objective: "test".to_string(),
-        status: ThreadGoalStatus::Complete,
-        tool_namespace: None,
-        token_budget: Some(1),
-        tokens_used: 1,
-        time_used_seconds: 1,
-        created_at: 1,
-        updated_at: 1,
-    })
-    .expect("budgeted goal should include report text")
+fn procedure_update_error(err: anyhow::Error) -> FunctionCallError {
+    procedure_state_error(
+        "update",
+        "The current procedure status could not be updated because the procedure runtime rejected the change. Do not assume that the requested status was applied.",
+        err,
+    )
+}
+
+fn procedure_state_error(
+    operation: &'static str,
+    model_message: &'static str,
+    err: anyhow::Error,
+) -> FunctionCallError {
+    tracing::error!(
+        operation,
+        error = %format_goal_error(err),
+        "procedure state operation failed"
+    );
+    FunctionCallError::RespondToModel(model_message.to_string())
 }
 
 #[cfg(test)]
@@ -118,7 +98,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn completed_budgeted_goal_response_reports_final_usage() {
+    fn procedure_response_exposes_only_objective_and_status() {
         let goal = ThreadGoal {
             thread_id: ThreadId::new(),
             objective: "Keep optimizing".to_string(),
@@ -131,41 +111,23 @@ mod tests {
             updated_at: 2,
         };
 
-        let response = GoalToolResponse::new(Some(goal.clone()), CompletionBudgetReport::Include);
+        let response = ProcedureToolResponse::new(Some(goal));
 
         assert_eq!(
             response,
-            GoalToolResponse {
-                goal: Some(goal),
-                remaining_tokens: Some(6_750),
-                completion_budget_report: Some(completion_budget_report_text()),
+            ProcedureToolResponse {
+                procedure: Some(ProcedureToolState {
+                    objective: "Keep optimizing".to_string(),
+                    status: ThreadGoalStatus::Complete,
+                }),
             }
         );
     }
 
     #[test]
-    fn completed_unbudgeted_goal_response_omits_budget_report() {
-        let goal = ThreadGoal {
-            thread_id: ThreadId::new(),
-            objective: "Write a poem".to_string(),
-            status: ThreadGoalStatus::Complete,
-            tool_namespace: None,
-            token_budget: None,
-            tokens_used: 120,
-            time_used_seconds: 75,
-            created_at: 1,
-            updated_at: 2,
-        };
+    fn missing_procedure_response_is_null() {
+        let response = ProcedureToolResponse::new(None);
 
-        let response = GoalToolResponse::new(Some(goal.clone()), CompletionBudgetReport::Include);
-
-        assert_eq!(
-            response,
-            GoalToolResponse {
-                goal: Some(goal),
-                remaining_tokens: None,
-                completion_budget_report: None,
-            }
-        );
+        assert_eq!(response, ProcedureToolResponse { procedure: None });
     }
 }

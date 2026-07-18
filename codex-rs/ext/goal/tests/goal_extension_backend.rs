@@ -7,7 +7,6 @@ use std::time::Duration;
 use codex_extension_api::ExtensionData;
 use codex_extension_api::ExtensionEventSink;
 use codex_extension_api::ExtensionRegistryBuilder;
-use codex_extension_api::FunctionCallError;
 use codex_extension_api::NoopTurnItemEmitter;
 use codex_extension_api::ThreadResumeInput;
 use codex_extension_api::ThreadStartInput;
@@ -41,48 +40,40 @@ use serde_json::json;
 use tempfile::TempDir;
 
 #[tokio::test]
-async fn installed_goal_tools_create_goal_and_fill_empty_preview() -> anyhow::Result<()> {
+async fn installed_procedure_tools_read_host_activated_procedure() -> anyhow::Result<()> {
     let runtime = test_runtime().await?;
     let thread_id = test_thread_id()?;
     seed_thread_metadata(runtime.as_ref(), thread_id).await?;
+    runtime
+        .thread_goals()
+        .replace_thread_goal(
+            thread_id,
+            "ship customer-service procedure",
+            codex_state::ThreadGoalStatus::Active,
+            Some(123),
+        )
+        .await?;
     let tools = installed_tools(runtime.clone(), thread_id).await;
 
-    let create_tool = tool_by_name(&tools, "create_goal");
-    let invocation = tool_call(
-        "create_goal",
-        "call-create-goal",
-        json!({
-            "objective": "ship goal extension backend",
-            "token_budget": 123,
-        }),
+    assert_eq!(
+        vec![
+            "get_current_procedure".to_string(),
+            "update_procedure_status".to_string(),
+        ],
+        tool_names(&tools)
     );
-    let output = create_tool.handle(invocation.clone()).await?;
+    let get_tool = tool_by_name(&tools, "get_current_procedure");
+    let invocation = tool_call("get_current_procedure", "call-get-procedure", json!({}));
+    let output = get_tool.handle(invocation.clone()).await?;
     let result = output.code_mode_result(&invocation.payload);
     assert_eq!(
         result,
         json!({
-            "goal": {
-                "threadId": thread_id,
-                "objective": "ship goal extension backend",
+            "procedure": {
+                "objective": "ship customer-service procedure",
                 "status": "active",
-                "tokenBudget": 123,
-                "tokensUsed": 0,
-                "timeUsedSeconds": 0,
-                "createdAt": result["goal"]["createdAt"],
-                "updatedAt": result["goal"]["updatedAt"],
-            },
-            "remainingTokens": 123,
-            "completionBudgetReport": serde_json::Value::Null,
+            }
         })
-    );
-
-    let metadata = runtime
-        .get_thread(thread_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("seeded thread metadata should exist"))?;
-    assert_eq!(
-        metadata.preview.as_deref(),
-        Some("ship goal extension backend")
     );
     Ok(())
 }
@@ -120,43 +111,8 @@ async fn goal_tools_hidden_for_review_subagents() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn installed_goal_tools_reject_duplicate_goal_creation() -> anyhow::Result<()> {
-    let runtime = test_runtime().await?;
-    let thread_id = test_thread_id()?;
-    seed_thread_metadata(runtime.as_ref(), thread_id).await?;
-    let harness = GoalExtensionHarness::new(runtime, thread_id).await?;
-    let tools = harness.tools();
-
-    let create_tool = tool_by_name(&tools, "create_goal");
-    let first = tool_call(
-        "create_goal",
-        "call-create-goal-1",
-        json!({ "objective": "first goal" }),
-    );
-    create_tool.handle(first).await?;
-
-    let second = tool_call(
-        "create_goal",
-        "call-create-goal-2",
-        json!({ "objective": "second goal" }),
-    );
-    let err = match create_tool.handle(second).await {
-        Ok(_) => panic!("duplicate create should fail"),
-        Err(err) => err,
-    };
-
-    assert_eq!(
-        err,
-        FunctionCallError::RespondToModel(
-            "cannot create a new goal because this thread already has a goal; use update_goal only when the existing goal is complete"
-                .to_string()
-        )
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn create_goal_resets_baseline_before_turn_stop_accounting() -> anyhow::Result<()> {
+async fn host_procedure_activation_resets_baseline_before_turn_stop_accounting()
+-> anyhow::Result<()> {
     let runtime = test_runtime().await?;
     let thread_id = test_thread_id()?;
     seed_thread_metadata(runtime.as_ref(), thread_id).await?;
@@ -182,15 +138,14 @@ async fn create_goal_resets_baseline_before_turn_stop_accounting() -> anyhow::Re
         )
         .await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
 
     harness
         .record_token_usage(
@@ -222,15 +177,14 @@ async fn tool_finish_accounts_active_goal_progress_and_emits_event() -> anyhow::
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
     harness.sink.clear();
 
     harness
@@ -273,18 +227,14 @@ async fn budget_limited_goal_keeps_accruing_until_turn_stop() -> anyhow::Result<
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({
-                "objective": "ship goal extension backend",
-                "token_budget": 25,
-            }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        Some(25),
+    )
+    .await?;
     harness.sink.clear();
 
     harness
@@ -349,18 +299,14 @@ async fn budget_limited_goal_keeps_accounting_after_later_tool_finish() -> anyho
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({
-                "objective": "ship goal extension backend",
-                "token_budget": 25,
-            }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        Some(25),
+    )
+    .await?;
 
     harness
         .record_token_usage(
@@ -407,15 +353,14 @@ async fn turn_error_usage_limit_accounts_progress_and_clears_accounting() -> any
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
     harness.sink.clear();
 
     harness
@@ -498,18 +443,14 @@ async fn usage_limit_budget_limited_goal_accounts_remaining_progress() -> anyhow
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({
-                "objective": "ship goal extension backend",
-                "token_budget": 25,
-            }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        Some(25),
+    )
+    .await?;
 
     harness
         .record_token_usage(
@@ -576,15 +517,14 @@ async fn usage_limit_plan_turn_does_not_stop_goal() -> anyhow::Result<()> {
     seed_thread_metadata(runtime.as_ref(), thread_id).await?;
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
 
     harness
         .start_turn_with_mode("turn-plan", ModeKind::Plan, &TokenUsage::default())
@@ -614,15 +554,14 @@ async fn usage_limit_stale_turn_does_not_stop_current_goal() -> anyhow::Result<(
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
     harness.stop_turn("turn-1").await;
     harness.start_turn("turn-2", &TokenUsage::default()).await;
     harness.sink.clear();
@@ -644,22 +583,21 @@ async fn usage_limit_stale_turn_does_not_stop_current_goal() -> anyhow::Result<(
 }
 
 #[tokio::test]
-async fn update_goal_can_block_and_accounts_final_progress() -> anyhow::Result<()> {
+async fn update_procedure_status_can_block_and_accounts_final_progress() -> anyhow::Result<()> {
     let runtime = test_runtime().await?;
     let thread_id = test_thread_id()?;
     seed_thread_metadata(runtime.as_ref(), thread_id).await?;
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
     harness.sink.clear();
 
     harness
@@ -671,10 +609,11 @@ async fn update_goal_can_block_and_accounts_final_progress() -> anyhow::Result<(
             ),
         )
         .await;
-    let update_tool = tool_by_name(&tools, "update_goal");
+    let tools = harness.tools();
+    let update_tool = tool_by_name(&tools, "update_procedure_status");
     let invocation = tool_call(
-        "update_goal",
-        "call-update-goal",
+        "update_procedure_status",
+        "call-update-procedure",
         json!({ "status": "blocked" }),
     );
     let output = update_tool.handle(invocation.clone()).await?;
@@ -683,17 +622,10 @@ async fn update_goal_can_block_and_accounts_final_progress() -> anyhow::Result<(
     assert_eq!(
         result,
         json!({
-            "goal": {
-                "threadId": thread_id,
-                "objective": "ship goal extension backend",
+            "procedure": {
+                "objective": "ship customer-service procedure",
                 "status": "blocked",
-                "tokensUsed": 23,
-                "timeUsedSeconds": 0,
-                "createdAt": result["goal"]["createdAt"],
-                "updatedAt": result["goal"]["updatedAt"],
-            },
-            "remainingTokens": serde_json::Value::Null,
-            "completionBudgetReport": serde_json::Value::Null,
+            }
         })
     );
 
@@ -708,13 +640,13 @@ async fn update_goal_can_block_and_accounts_final_progress() -> anyhow::Result<(
     assert_eq!(
         vec![
             CapturedGoalEvent {
-                event_id: "call-update-goal".to_string(),
+                event_id: "call-update-procedure".to_string(),
                 turn_id: Some("turn-1".to_string()),
                 status: ThreadGoalStatus::Active,
                 tokens_used: 23,
             },
             CapturedGoalEvent {
-                event_id: "call-update-goal".to_string(),
+                event_id: "call-update-procedure".to_string(),
                 turn_id: Some("turn-1".to_string()),
                 status: ThreadGoalStatus::Blocked,
                 tokens_used: 23,
@@ -733,15 +665,14 @@ async fn external_goal_mutation_start_accounts_active_goal_progress() -> anyhow:
     let harness = GoalExtensionHarness::new(runtime.clone(), thread_id).await?;
     harness.start_turn("turn-1", &TokenUsage::default()).await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "ship goal extension backend" }),
-        ))
-        .await?;
+    activate_procedure(
+        &harness,
+        runtime.as_ref(),
+        thread_id,
+        "ship customer-service procedure",
+        None,
+    )
+    .await?;
     harness.sink.clear();
 
     harness
@@ -794,15 +725,7 @@ async fn external_goal_set_active_resets_baseline_without_live_thread() -> anyho
         )
         .await;
 
-    let tools = harness.tools();
-    let create_tool = tool_by_name(&tools, "create_goal");
-    create_tool
-        .handle(tool_call(
-            "create_goal",
-            "call-create-goal",
-            json!({ "objective": "old objective" }),
-        ))
-        .await?;
+    activate_procedure(&harness, runtime.as_ref(), thread_id, "old objective", None).await?;
     harness.sink.clear();
 
     harness
@@ -1161,6 +1084,39 @@ async fn seed_thread_metadata(
         SessionSource::Cli,
     );
     runtime.upsert_thread(&builder.build("test-provider")).await
+}
+
+async fn activate_procedure(
+    harness: &GoalExtensionHarness,
+    runtime: &codex_state::StateRuntime,
+    thread_id: ThreadId,
+    objective: &str,
+    token_budget: Option<i64>,
+) -> anyhow::Result<codex_state::ThreadGoal> {
+    let previous_goal = runtime.thread_goals().get_thread_goal(thread_id).await?;
+    harness
+        .runtime_handle()
+        .prepare_external_goal_mutation()
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let procedure = runtime
+        .thread_goals()
+        .replace_thread_goal(
+            thread_id,
+            objective,
+            codex_state::ThreadGoalStatus::Active,
+            token_budget,
+        )
+        .await?;
+    harness
+        .runtime_handle()
+        .apply_external_goal_set(
+            procedure.clone(),
+            previous_goal.as_ref().map(PreviousGoalSnapshot::from),
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
+    Ok(procedure)
 }
 
 #[derive(Debug, Default)]

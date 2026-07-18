@@ -56,7 +56,6 @@ use codex_protocol::request_permissions::PermissionGrantScope;
 use codex_protocol::request_permissions::RequestPermissionProfile;
 use tracing::Span;
 
-use crate::goals::CreateGoalRequest;
 use crate::goals::ExternalGoalPreviousStatus;
 use crate::goals::ExternalGoalSet;
 use crate::goals::GoalRuntimeEvent;
@@ -71,7 +70,6 @@ use crate::tasks::execute_user_shell_command;
 use crate::tools::ToolRouter;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
-use crate::tools::handlers::CreateGoalHandler;
 use crate::tools::handlers::ExecCommandHandler;
 use crate::tools::handlers::ShellCommandHandler;
 use crate::tools::handlers::UpdateGoalHandler;
@@ -8662,16 +8660,13 @@ async fn active_goal_does_not_auto_continue_after_turn() -> anyhow::Result<()> {
             .expect("goal mode should be enableable in tests");
     });
     let test = builder.build(&server).await?;
+    activate_test_procedure(&test, "write a benchmark note", None).await?;
     let responses = mount_sse_sequence(
         &server,
         vec![
             sse(vec![
                 ev_response_created("resp-1"),
-                ev_function_call(
-                    "call-create-goal",
-                    "create_goal",
-                    r#"{"objective":"write a benchmark note"}"#,
-                ),
+                ev_function_call("call-get-procedure", "get_current_procedure", r#"{}"#),
                 ev_completed("resp-1"),
             ]),
             sse(vec![
@@ -8742,15 +8737,16 @@ async fn pending_request_user_input_does_not_spawn_extra_goal_continuation() -> 
             .expect("default-mode request_user_input should be enableable in tests");
     });
     let test = builder.build(&server).await?;
+    activate_test_procedure(&test, "write a benchmark note", None).await?;
     let responses = mount_sse_sequence(
         &server,
         vec![
             sse(vec![
                 ev_response_created("resp-1"),
                 ev_function_call(
-                    "call-create-goal",
-                    "create_goal",
-                    r#"{"objective":"write a benchmark note"}"#,
+                    "call-get-procedure",
+                    "get_current_procedure",
+                    r#"{}"#,
                 ),
                 ev_completed("resp-1"),
             ]),
@@ -8771,7 +8767,7 @@ async fn pending_request_user_input_does_not_spawn_extra_goal_continuation() -> 
                 ev_response_created("resp-4"),
                 ev_function_call(
                     "call-complete-goal",
-                    "update_goal",
+                    "update_procedure_status",
                     r#"{"status":"complete"}"#,
                 ),
                 ev_completed("resp-4"),
@@ -8877,8 +8873,50 @@ async fn goal_test_state_db(sess: &Session) -> anyhow::Result<crate::StateDbHand
         .await
 }
 
+async fn activate_test_procedure(
+    test: &core_test_support::test_codex::TestCodex,
+    objective: &str,
+    token_budget: Option<i64>,
+) -> anyhow::Result<()> {
+    let state_db = codex_state::StateRuntime::init(
+        test.config.sqlite_home.clone(),
+        test.config.model_provider_id.clone(),
+    )
+    .await?;
+    state_db
+        .thread_goals()
+        .replace_thread_goal(
+            test.session_configured.thread_id,
+            objective,
+            codex_state::ThreadGoalStatus::Active,
+            token_budget,
+        )
+        .await?;
+    Ok(())
+}
+
+async fn activate_session_test_procedure(
+    session: &Arc<Session>,
+    turn_context: &Arc<TurnContext>,
+    objective: &str,
+    token_budget: Option<i64>,
+) -> anyhow::Result<()> {
+    session
+        .set_thread_goal(
+            turn_context.as_ref(),
+            SetGoalRequest {
+                objective: Some(objective.to_string()),
+                status: Some(ThreadGoalStatus::Active),
+                tool_namespace: Some("test_procedure".to_string()),
+                token_budget: Some(token_budget),
+            },
+        )
+        .await?;
+    Ok(())
+}
+
 #[tokio::test]
-async fn create_thread_goal_fills_empty_thread_preview() -> anyhow::Result<()> {
+async fn host_activated_procedure_fills_empty_thread_preview() -> anyhow::Result<()> {
     let (sess, tc, _rx, _codex_home) = make_goal_session_and_context_with_rx().await;
     let state_db = goal_test_state_db(sess.as_ref()).await?;
 
@@ -8899,11 +8937,13 @@ async fn create_thread_goal_fills_empty_thread_preview() -> anyhow::Result<()> {
         .await?;
     assert!(page.items.is_empty());
 
-    sess.create_thread_goal(
+    sess.set_thread_goal(
         tc.as_ref(),
-        CreateGoalRequest {
-            objective: "Keep improving the benchmark".to_string(),
-            token_budget: None,
+        SetGoalRequest {
+            objective: Some("Keep improving the benchmark".to_string()),
+            status: Some(ThreadGoalStatus::Active),
+            tool_namespace: Some("benchmark_procedure".to_string()),
+            token_budget: Some(None),
         },
     )
     .await?;
@@ -9306,23 +9346,20 @@ async fn completed_goal_accounts_current_turn_tokens_before_tool_response() -> a
             .expect("goal mode should be enableable in tests");
     });
     let test = builder.build(&server).await?;
+    activate_test_procedure(&test, "write a report", Some(500)).await?;
     let responses = mount_sse_sequence(
         &server,
         vec![
             sse(vec![
                 ev_response_created("resp-1"),
-                ev_function_call(
-                    "call-create-goal",
-                    "create_goal",
-                    r#"{"objective":"write a report","token_budget":500}"#,
-                ),
+                ev_function_call("call-get-procedure", "get_current_procedure", r#"{}"#),
                 ev_completed("resp-1"),
             ]),
             sse(vec![
                 ev_response_created("resp-2"),
                 ev_function_call(
                     "call-complete-goal",
-                    "update_goal",
+                    "update_procedure_status",
                     r#"{"status":"complete"}"#,
                 ),
                 ev_completed_with_tokens("resp-2", /*total_tokens*/ 580),
@@ -9363,12 +9400,14 @@ async fn completed_goal_accounts_current_turn_tokens_before_tool_response() -> a
         .function_call_output_text("call-complete-goal")
         .expect("complete tool output should be sent to the model");
     let complete_output: serde_json::Value = serde_json::from_str(&complete_output)?;
-    assert_eq!(complete_output["goal"]["tokensUsed"], 580);
-    assert_eq!(complete_output["goal"]["status"], "complete");
-    assert_eq!(complete_output["remainingTokens"], 0);
     assert_eq!(
-        complete_output["completionBudgetReport"],
-        "Goal achieved. Report final usage from this tool result's structured goal fields. If `goal.tokenBudget` is present, include token usage from `goal.tokensUsed` and `goal.tokenBudget`. If `goal.timeUsedSeconds` is greater than 0, summarize elapsed time in a concise, human-friendly form appropriate to the response language."
+        complete_output,
+        serde_json::json!({
+            "procedure": {
+                "objective": "write a report",
+                "status": "complete"
+            }
+        })
     );
     let requests = responses.requests();
     let completion_followup_request = requests
@@ -9952,102 +9991,23 @@ async fn sample_rollout(
 }
 
 #[tokio::test]
-async fn create_goal_tool_rejects_existing_goal() {
+async fn update_procedure_status_tool_pauses_procedure() {
     let (session, turn_context, _rx, _codex_home) = make_goal_session_and_context_with_rx().await;
     let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
-    let handler = CreateGoalHandler;
-
-    handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn_context),
-            cancellation_token: CancellationToken::new(),
-            tracker: Arc::clone(&tracker),
-            call_id: "create-goal-1".to_string(),
-            tool_name: codex_tools::ToolName::plain("create_goal"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "objective": "Keep the watcher alive",
-                    "token_budget": 123,
-                })
-                .to_string(),
-            },
-        })
-        .await
-        .expect("initial create_goal should succeed");
-
-    let response = handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn_context),
-            cancellation_token: CancellationToken::new(),
-            tracker,
-            call_id: "create-goal-2".to_string(),
-            tool_name: codex_tools::ToolName::plain("create_goal"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "objective": "Replace the watcher",
-                    "token_budget": 456,
-                })
-                .to_string(),
-            },
-        })
-        .await;
-
-    let Err(FunctionCallError::RespondToModel(output)) = response else {
-        panic!("expected create_goal to reject an existing goal");
-    };
-    assert_eq!(
-        output,
-        "cannot create a new goal because this thread already has a goal; use update_goal only when the existing goal is complete"
-    );
-
-    let goal = session
-        .get_thread_goal()
-        .await
-        .expect("read thread goal")
-        .expect("goal should still exist");
-    assert_eq!(goal.objective, "Keep the watcher alive");
-    assert_eq!(goal.token_budget, Some(123));
-}
-
-#[tokio::test]
-async fn update_goal_tool_rejects_pausing_goal() {
-    let (session, turn_context, _rx, _codex_home) = make_goal_session_and_context_with_rx().await;
-    let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
-    let create_handler = CreateGoalHandler;
     let update_handler = UpdateGoalHandler;
 
-    create_handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn_context),
-            cancellation_token: CancellationToken::new(),
-            tracker: Arc::clone(&tracker),
-            call_id: "create-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("create_goal"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "objective": "Keep the watcher alive",
-                    "token_budget": 123,
-                })
-                .to_string(),
-            },
-        })
+    activate_session_test_procedure(&session, &turn_context, "Keep the watcher alive", Some(123))
         .await
-        .expect("initial create_goal should succeed");
+        .expect("host procedure activation should succeed");
 
-    let response = update_handler
+    update_handler
         .handle(ToolInvocation {
             session: Arc::clone(&session),
             turn: Arc::clone(&turn_context),
             cancellation_token: CancellationToken::new(),
             tracker,
-            call_id: "pause-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("update_goal"),
+            call_id: "pause-procedure".to_string(),
+            tool_name: codex_tools::ToolName::plain("update_procedure_status"),
             source: ToolCallSource::Direct,
             payload: ToolPayload::Function {
                 arguments: serde_json::json!({
@@ -10056,50 +10016,26 @@ async fn update_goal_tool_rejects_pausing_goal() {
                 .to_string(),
             },
         })
-        .await;
-
-    let Err(FunctionCallError::RespondToModel(output)) = response else {
-        panic!("expected update_goal to reject pausing a goal");
-    };
-    assert_eq!(
-        output,
-        "update_goal can only mark the existing goal complete or blocked; pause, resume, budget-limited, and usage-limited status changes are controlled by the user or system"
-    );
+        .await
+        .expect("update_procedure_status should pause the procedure");
 
     let goal = session
         .get_thread_goal()
         .await
         .expect("read thread goal")
         .expect("goal should still exist");
-    assert_eq!(goal.status, ThreadGoalStatus::Active);
+    assert_eq!(goal.status, ThreadGoalStatus::Paused);
 }
 
 #[tokio::test]
-async fn update_goal_tool_marks_goal_blocked() {
+async fn update_procedure_status_tool_marks_procedure_blocked() {
     let (session, turn_context, _rx, _codex_home) = make_goal_session_and_context_with_rx().await;
     let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
-    let create_handler = CreateGoalHandler;
     let update_handler = UpdateGoalHandler;
 
-    create_handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn_context),
-            cancellation_token: CancellationToken::new(),
-            tracker: Arc::clone(&tracker),
-            call_id: "create-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("create_goal"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "objective": "Keep the watcher alive",
-                    "token_budget": 123,
-                })
-                .to_string(),
-            },
-        })
+    activate_session_test_procedure(&session, &turn_context, "Keep the watcher alive", Some(123))
         .await
-        .expect("initial create_goal should succeed");
+        .expect("host procedure activation should succeed");
 
     update_handler
         .handle(ToolInvocation {
@@ -10107,8 +10043,8 @@ async fn update_goal_tool_marks_goal_blocked() {
             turn: Arc::clone(&turn_context),
             cancellation_token: CancellationToken::new(),
             tracker,
-            call_id: "block-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("update_goal"),
+            call_id: "block-procedure".to_string(),
+            tool_name: codex_tools::ToolName::plain("update_procedure_status"),
             source: ToolCallSource::Direct,
             payload: ToolPayload::Function {
                 arguments: serde_json::json!({
@@ -10118,7 +10054,7 @@ async fn update_goal_tool_marks_goal_blocked() {
             },
         })
         .await
-        .expect("update_goal should mark the goal blocked");
+        .expect("update_procedure_status should mark the procedure blocked");
 
     let goal = session
         .get_thread_goal()
@@ -10129,30 +10065,14 @@ async fn update_goal_tool_marks_goal_blocked() {
 }
 
 #[tokio::test]
-async fn update_goal_tool_rejects_usage_limited_goal() {
+async fn update_procedure_status_tool_rejects_system_limited_status() {
     let (session, turn_context, _rx, _codex_home) = make_goal_session_and_context_with_rx().await;
     let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
-    let create_handler = CreateGoalHandler;
     let update_handler = UpdateGoalHandler;
 
-    create_handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn_context),
-            cancellation_token: CancellationToken::new(),
-            tracker: Arc::clone(&tracker),
-            call_id: "create-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("create_goal"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "objective": "Keep the watcher alive",
-                })
-                .to_string(),
-            },
-        })
+    activate_session_test_procedure(&session, &turn_context, "Keep the watcher alive", None)
         .await
-        .expect("initial create_goal should succeed");
+        .expect("host procedure activation should succeed");
 
     let response = update_handler
         .handle(ToolInvocation {
@@ -10160,8 +10080,8 @@ async fn update_goal_tool_rejects_usage_limited_goal() {
             turn: Arc::clone(&turn_context),
             cancellation_token: CancellationToken::new(),
             tracker,
-            call_id: "usage-limit-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("update_goal"),
+            call_id: "usage-limit-procedure".to_string(),
+            tool_name: codex_tools::ToolName::plain("update_procedure_status"),
             source: ToolCallSource::Direct,
             payload: ToolPayload::Function {
                 arguments: serde_json::json!({
@@ -10173,11 +10093,11 @@ async fn update_goal_tool_rejects_usage_limited_goal() {
         .await;
 
     let Err(FunctionCallError::RespondToModel(output)) = response else {
-        panic!("expected update_goal to reject usage-limiting a goal");
+        panic!("expected update_procedure_status to reject a system-limited status");
     };
     assert_eq!(
         output,
-        "update_goal can only mark the existing goal complete or blocked; pause, resume, budget-limited, and usage-limited status changes are controlled by the user or system"
+        "update_procedure_status accepts only active, paused, complete, or blocked"
     );
 
     let goal = session
@@ -10189,31 +10109,14 @@ async fn update_goal_tool_rejects_usage_limited_goal() {
 }
 
 #[tokio::test]
-async fn update_goal_tool_marks_goal_complete() {
+async fn update_procedure_status_tool_marks_procedure_complete() {
     let (session, turn_context, _rx, _codex_home) = make_goal_session_and_context_with_rx().await;
     let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
-    let create_handler = CreateGoalHandler;
     let update_handler = UpdateGoalHandler;
 
-    create_handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn_context),
-            cancellation_token: CancellationToken::new(),
-            tracker: Arc::clone(&tracker),
-            call_id: "create-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("create_goal"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "objective": "Keep the watcher alive",
-                    "token_budget": 123,
-                })
-                .to_string(),
-            },
-        })
+    activate_session_test_procedure(&session, &turn_context, "Keep the watcher alive", Some(123))
         .await
-        .expect("initial create_goal should succeed");
+        .expect("host procedure activation should succeed");
 
     update_handler
         .handle(ToolInvocation {
@@ -10221,8 +10124,8 @@ async fn update_goal_tool_marks_goal_complete() {
             turn: Arc::clone(&turn_context),
             cancellation_token: CancellationToken::new(),
             tracker,
-            call_id: "complete-goal".to_string(),
-            tool_name: codex_tools::ToolName::plain("update_goal"),
+            call_id: "complete-procedure".to_string(),
+            tool_name: codex_tools::ToolName::plain("update_procedure_status"),
             source: ToolCallSource::Direct,
             payload: ToolPayload::Function {
                 arguments: serde_json::json!({
@@ -10232,7 +10135,7 @@ async fn update_goal_tool_marks_goal_complete() {
             },
         })
         .await
-        .expect("update_goal should mark the goal complete");
+        .expect("update_procedure_status should mark the procedure complete");
 
     let goal = session
         .get_thread_goal()

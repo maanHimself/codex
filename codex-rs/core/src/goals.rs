@@ -5,9 +5,8 @@
 //! events, and owns helper hooks used by goal lifecycle behavior.
 
 use crate::StateDbHandle;
+use crate::context::AzozProcedureContext;
 use crate::context::ContextualUserFragment;
-use crate::context::InternalContextSource;
-use crate::context::InternalModelContextFragment;
 use crate::session::TurnInput;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
@@ -51,11 +50,6 @@ pub(crate) struct SetGoalRequest {
     pub(crate) status: Option<ThreadGoalStatus>,
     pub(crate) tool_namespace: Option<String>,
     pub(crate) token_budget: Option<Option<i64>>,
-}
-
-pub(crate) struct CreateGoalRequest {
-    pub(crate) objective: String,
-    pub(crate) token_budget: Option<i64>,
 }
 
 static CONTINUATION_PROMPT_TEMPLATE: LazyLock<Template> =
@@ -600,77 +594,6 @@ impl Session {
         } else if goal_status != codex_state::ThreadGoalStatus::Active {
             self.clear_active_goal_accounting(turn_context).await;
         }
-        self.send_event(
-            turn_context,
-            EventMsg::ThreadGoalUpdated(ThreadGoalUpdatedEvent {
-                thread_id: self.conversation_id,
-                turn_id: Some(turn_context.sub_id.clone()),
-                goal: goal.clone(),
-            }),
-        )
-        .await;
-        Ok(goal)
-    }
-
-    pub(crate) async fn create_thread_goal(
-        &self,
-        turn_context: &TurnContext,
-        request: CreateGoalRequest,
-    ) -> anyhow::Result<ThreadGoal> {
-        if !self.enabled(Feature::Goals) {
-            anyhow::bail!("goals feature is disabled");
-        }
-
-        let CreateGoalRequest {
-            objective,
-            token_budget,
-        } = request;
-        validate_goal_budget(token_budget)?;
-        let objective = objective.trim();
-        validate_thread_goal_objective(objective).map_err(anyhow::Error::msg)?;
-
-        let state_db = self.require_state_db_for_thread_goals().await?;
-        self.account_thread_goal_wall_clock_usage(
-            &state_db,
-            codex_state::GoalAccountingMode::ActiveOnly,
-            TerminalMetricEmission::Emit,
-        )
-        .await?;
-        let goal = state_db
-            .thread_goals()
-            .insert_thread_goal(
-                self.conversation_id,
-                objective,
-                codex_state::ThreadGoalStatus::Active,
-                token_budget,
-            )
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "cannot create a new goal because thread {} already has a goal",
-                    self.conversation_id
-                )
-            })?;
-
-        set_thread_preview_from_goal_objective(
-            &state_db,
-            self.conversation_id,
-            goal.objective.as_str(),
-        )
-        .await;
-        let goal_id = goal.goal_id.clone();
-        self.emit_goal_created_metric();
-        let goal = protocol_goal_from_state(goal);
-        *self.goal_runtime.budget_limit_reported_goal_id.lock().await = None;
-
-        let current_token_usage = self.total_token_usage().await.unwrap_or_default();
-        self.mark_active_goal_accounting(
-            goal_id,
-            Some(turn_context.sub_id.clone()),
-            current_token_usage,
-        )
-        .await;
-
         self.send_event(
             turn_context,
             EventMsg::ThreadGoalUpdated(ThreadGoalUpdatedEvent {
@@ -1560,66 +1483,27 @@ fn should_ignore_goal_for_mode(mode: ModeKind) -> bool {
 // context, but the model is only asked to mark the goal complete after auditing
 // the current state.
 fn continuation_prompt(goal: &ThreadGoal) -> String {
-    let token_budget = goal
-        .token_budget
-        .map(|budget| budget.to_string())
-        .unwrap_or_else(|| "none".to_string());
-    let remaining_tokens = goal
-        .token_budget
-        .map(|budget| (budget - goal.tokens_used).max(0).to_string())
-        .unwrap_or_else(|| "unbounded".to_string());
-    let tokens_used = goal.tokens_used.to_string();
     let objective = escape_xml_text(&goal.objective);
 
-    match CONTINUATION_PROMPT_TEMPLATE.render([
-        ("objective", objective.as_str()),
-        ("tokens_used", tokens_used.as_str()),
-        ("token_budget", token_budget.as_str()),
-        ("remaining_tokens", remaining_tokens.as_str()),
-    ]) {
+    match CONTINUATION_PROMPT_TEMPLATE.render([("objective", objective.as_str())]) {
         Ok(prompt) => prompt,
         Err(err) => panic!("embedded goals/continuation.md template failed to render: {err}"),
     }
 }
 
 fn budget_limit_prompt(goal: &ThreadGoal) -> String {
-    let token_budget = goal
-        .token_budget
-        .map(|budget| budget.to_string())
-        .unwrap_or_else(|| "none".to_string());
-    let tokens_used = goal.tokens_used.to_string();
-    let time_used_seconds = goal.time_used_seconds.to_string();
     let objective = escape_xml_text(&goal.objective);
 
-    match BUDGET_LIMIT_PROMPT_TEMPLATE.render([
-        ("objective", objective.as_str()),
-        ("tokens_used", tokens_used.as_str()),
-        ("time_used_seconds", time_used_seconds.as_str()),
-        ("token_budget", token_budget.as_str()),
-    ]) {
+    match BUDGET_LIMIT_PROMPT_TEMPLATE.render([("objective", objective.as_str())]) {
         Ok(prompt) => prompt,
         Err(err) => panic!("embedded goals/budget_limit.md template failed to render: {err}"),
     }
 }
 
 fn objective_updated_prompt(goal: &ThreadGoal) -> String {
-    let token_budget = goal
-        .token_budget
-        .map(|budget| budget.to_string())
-        .unwrap_or_else(|| "none".to_string());
-    let remaining_tokens = goal
-        .token_budget
-        .map(|budget| (budget - goal.tokens_used).max(0).to_string())
-        .unwrap_or_else(|| "unbounded".to_string());
-    let tokens_used = goal.tokens_used.to_string();
     let objective = escape_xml_text(&goal.objective);
 
-    match OBJECTIVE_UPDATED_PROMPT_TEMPLATE.render([
-        ("objective", objective.as_str()),
-        ("tokens_used", tokens_used.as_str()),
-        ("token_budget", token_budget.as_str()),
-        ("remaining_tokens", remaining_tokens.as_str()),
-    ]) {
+    match OBJECTIVE_UPDATED_PROMPT_TEMPLATE.render([("objective", objective.as_str())]) {
         Ok(prompt) => prompt,
         Err(err) => panic!("embedded goals/objective_updated.md template failed to render: {err}"),
     }
@@ -1637,10 +1521,7 @@ fn budget_limit_steering_item(goal: &ThreadGoal) -> ResponseItem {
 }
 
 fn goal_context_input_item(prompt: String) -> ResponseItem {
-    ContextualUserFragment::into(InternalModelContextFragment::new(
-        InternalContextSource::from_static("goal"),
-        prompt,
-    ))
+    ContextualUserFragment::into(AzozProcedureContext::new(prompt))
 }
 
 pub(crate) fn protocol_goal_from_state(goal: codex_state::ThreadGoal) -> ThreadGoal {
@@ -1756,7 +1637,7 @@ mod tests {
     }
 
     #[test]
-    fn continuation_prompt_allows_complete_and_strict_blocked_updates() {
+    fn continuation_prompt_uses_customer_procedure_contract() {
         let prompt = continuation_prompt(&ThreadGoal {
             thread_id: ThreadId::new(),
             objective: "finish the stack".to_string(),
@@ -1771,20 +1652,14 @@ mod tests {
         .replace("\r\n", "\n");
 
         assert!(prompt.contains("finish the stack"));
-        assert!(prompt.contains("<objective>\nfinish the stack\n</objective>"));
-        assert!(prompt.contains("Token budget: 10000"));
-        assert!(prompt.contains("call update_goal with status \"complete\""));
-        assert!(prompt.contains("status \"blocked\""));
-        assert!(prompt.contains("at least three consecutive goal turns"));
-        assert!(prompt.contains("same blocking condition"));
-        assert!(prompt.contains("original/user-triggered turn"));
-        assert!(prompt.contains("truly at an impasse"));
-        assert!(!prompt.contains("budgetLimited"));
-        assert!(!prompt.contains("status \"paused\""));
+        assert!(prompt.contains("<procedure_objective>\nfinish the stack\n</procedure_objective>"));
+        assert!(prompt.contains("`update_procedure_status` with `complete`"));
+        assert!(prompt.contains("`update_procedure_status` with `blocked`"));
+        assert!(prompt.contains("Communicate only the natural customer-facing"));
     }
 
     #[test]
-    fn budget_limit_prompt_steers_model_to_wrap_up_without_pausing() {
+    fn budget_limit_prompt_uses_internal_procedure_language() {
         let prompt = budget_limit_prompt(&ThreadGoal {
             thread_id: ThreadId::new(),
             objective: "finish the stack".to_string(),
@@ -1799,15 +1674,14 @@ mod tests {
         .replace("\r\n", "\n");
 
         assert!(prompt.contains("finish the stack"));
-        assert!(prompt.contains("<objective>\nfinish the stack\n</objective>"));
-        assert!(prompt.contains("Token budget: 10000"));
-        assert!(prompt.contains("Tokens used: 10100"));
-        assert!(prompt.to_lowercase().contains("wrap up this turn soon"));
-        assert!(!prompt.contains("status \"paused\""));
+        assert!(prompt.contains("<procedure_objective>\nfinish the stack\n</procedure_objective>"));
+        assert!(prompt.contains("system execution limit"));
+        assert!(prompt.contains("natural customer-facing response"));
+        assert!(prompt.contains("`update_procedure_status` with `complete`"));
     }
 
     #[test]
-    fn objective_updated_prompt_supersedes_previous_goal_context() {
+    fn objective_updated_prompt_supersedes_previous_procedure_context() {
         let prompt = objective_updated_prompt(&ThreadGoal {
             thread_id: ThreadId::new(),
             objective: "finish the revised stack".to_string(),
@@ -1821,19 +1695,14 @@ mod tests {
         })
         .replace("\r\n", "\n");
 
-        assert!(prompt.contains("edited by the user"));
-        assert!(prompt.contains("supersedes any previous thread goal objective"));
+        assert!(prompt.contains("updated by the application"));
+        assert!(prompt.contains("supersedes the previous procedure objective"));
         assert!(
             prompt.contains(
-                "<untrusted_objective>\nfinish the revised stack\n</untrusted_objective>"
+                "<procedure_objective>\nfinish the revised stack\n</procedure_objective>"
             )
         );
-        assert!(prompt.contains("Token budget: 10000"));
-        assert!(prompt.contains("Tokens remaining: 8766"));
-        assert!(
-            prompt
-                .contains("Do not call update_goal unless the updated goal is actually complete.")
-        );
+        assert!(prompt.contains("Do not call `update_procedure_status` with `complete`"));
     }
 
     #[test]
@@ -1846,7 +1715,8 @@ mod tests {
                 id: None,
                 role: "user".to_string(),
                 content: vec![ContentItem::InputText {
-                    text: "<codex_internal_context source=\"goal\">\nContinue working.\n</codex_internal_context>".to_string(),
+                    text: "<azoz_procedure_context>\nContinue working.\n</azoz_procedure_context>"
+                        .to_string(),
                 }],
                 phase: None,
             }
