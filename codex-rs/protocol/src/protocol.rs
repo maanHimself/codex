@@ -2810,10 +2810,10 @@ pub struct TurnContextNetworkItem {
     pub denied_domains: Vec<String>,
 }
 
-/// Persist once per real user turn after computing that turn's model-visible
-/// context updates, and again after mid-turn compaction when replacement
-/// history re-establishes full context, so resume/fork replay can recover the
-/// latest durable baseline.
+/// Persist for each real user turn after computing that turn's model-visible
+/// context updates, and after native mid-turn context transitions or compaction
+/// re-establish the baseline, so resume/fork replay can recover the latest
+/// durable context.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, TS)]
 pub struct TurnContextItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]

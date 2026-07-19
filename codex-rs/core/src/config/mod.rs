@@ -553,6 +553,9 @@ pub struct Config {
     /// Optional override of model selection.
     pub model: Option<String>,
 
+    /// Model used for sampling while a persisted procedure is active.
+    pub procedure_model: Option<String>,
+
     /// Effective service tier request id preference for new turns.
     /// `default` means the user explicitly selected standard routing.
     pub service_tier: Option<String>,
@@ -3334,6 +3337,7 @@ impl Config {
         let otel = otel::resolve_config(cfg.otel.unwrap_or_default(), &mut startup_warnings);
         let config = Self {
             model,
+            procedure_model: cfg.procedure_model,
             service_tier,
             review_model,
             model_context_window: cfg.model_context_window,

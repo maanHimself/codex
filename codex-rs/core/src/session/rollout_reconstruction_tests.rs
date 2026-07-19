@@ -170,6 +170,70 @@ async fn record_initial_history_resumed_hydrates_previous_turn_settings_from_lif
 }
 
 #[tokio::test]
+async fn record_initial_history_resumed_uses_latest_context_transition_in_same_turn() {
+    let (session, turn_context) = make_session_and_context().await;
+    let initial_context_item = turn_context.to_turn_context_item();
+    let mut procedure_context_item = turn_context.to_turn_context_item();
+    procedure_context_item.model = "procedure-model".to_string();
+    let turn_id = initial_context_item
+        .turn_id
+        .clone()
+        .expect("turn context should have turn_id");
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::TurnStarted(
+            codex_protocol::protocol::TurnStartedEvent {
+                turn_id: turn_id.clone(),
+                trace_id: None,
+                started_at: None,
+                model_context_window: Some(128_000),
+                collaboration_mode_kind: ModeKind::Default,
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::UserMessage(
+            codex_protocol::protocol::UserMessageEvent {
+                client_id: None,
+                message: "seed".to_string(),
+                images: None,
+                local_images: Vec::new(),
+                text_elements: Vec::new(),
+                ..Default::default()
+            },
+        )),
+        RolloutItem::TurnContext(initial_context_item),
+        RolloutItem::TurnContext(procedure_context_item.clone()),
+        RolloutItem::EventMsg(EventMsg::TurnComplete(
+            codex_protocol::protocol::TurnCompleteEvent {
+                turn_id,
+                last_agent_message: None,
+                completed_at: None,
+                duration_ms: None,
+                time_to_first_token_ms: None,
+            },
+        )),
+    ];
+
+    session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: rollout_items,
+            rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
+        }))
+        .await;
+
+    assert_eq!(
+        session.previous_turn_settings().await,
+        Some(PreviousTurnSettings {
+            model: "procedure-model".to_string(),
+            realtime_active: Some(turn_context.realtime_active),
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(session.reference_context_item().await).unwrap(),
+        serde_json::to_value(Some(procedure_context_item)).unwrap()
+    );
+}
+
+#[tokio::test]
 async fn reconstruct_history_rollback_keeps_history_and_metadata_in_sync_for_completed_turns() {
     let (session, turn_context) = make_session_and_context().await;
     let first_context_item = turn_context.to_turn_context_item();

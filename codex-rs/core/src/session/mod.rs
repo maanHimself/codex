@@ -199,6 +199,7 @@ mod inject;
 mod input_queue;
 mod mcp;
 mod multi_agents;
+mod procedure_model;
 mod review;
 mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
@@ -2891,8 +2892,8 @@ impl Session {
         state.reference_context_item()
     }
 
-    /// Persist the latest turn context snapshot for the first real user turn and for
-    /// steady-state turns that emit model-visible context updates.
+    /// Persist the latest turn context snapshot for real user turns and for native
+    /// mid-turn context transitions such as selecting a procedure model.
     ///
     /// When the reference snapshot is missing, this injects full initial context. Otherwise, it
     /// emits only settings diff items.
@@ -2925,8 +2926,8 @@ impl Session {
             self.record_conversation_items(turn_context, &context_items)
                 .await;
         }
-        // Persist one `TurnContextItem` per real user turn so resume/lazy replay can recover the
-        // latest durable baseline even when this turn emitted no model-visible context diffs.
+        // Persist the latest `TurnContextItem` so resume/lazy replay can recover the durable
+        // baseline even when this transition emitted no model-visible context diffs.
         self.persist_rollout_items(&[RolloutItem::TurnContext(turn_context_item.clone())])
             .await;
 

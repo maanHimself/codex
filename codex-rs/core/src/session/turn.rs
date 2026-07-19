@@ -41,6 +41,10 @@ use crate::runtime::ModelStreamRequest;
 use crate::runtime::ModelTurnRuntime;
 use crate::session::PreviousTurnSettings;
 use crate::session::TurnInput;
+use crate::session::procedure_model::ActiveProcedureState;
+use crate::session::procedure_model::procedure_model_was_selected_for_turn;
+use crate::session::procedure_model::read_active_procedure_state;
+use crate::session::procedure_model::select_procedure_model_context;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::stream_events_utils::HandleOutputCtx;
@@ -118,6 +122,17 @@ use tracing::trace;
 use tracing::trace_span;
 use tracing::warn;
 
+async fn emit_sampling_setup_error(sess: &Session, turn_context: &TurnContext, err: CodexErr) {
+    info!(error = %err, "turn sampling setup failed");
+    let error = err.to_codex_protocol_error();
+    sess.emit_turn_error_lifecycle(turn_context, error).await;
+    sess.send_event(
+        turn_context,
+        EventMsg::Error(err.to_error_event(/*message_prefix*/ None)),
+    )
+    .await;
+}
+
 /// Takes initial turn input and runs a loop where, at each sampling request,
 /// the model replies with either:
 ///
@@ -134,7 +149,7 @@ use tracing::warn;
 ///
 pub(crate) async fn run_turn(
     sess: Arc<Session>,
-    turn_context: Arc<TurnContext>,
+    mut turn_context: Arc<TurnContext>,
     turn_extension_data: Arc<codex_extension_api::ExtensionData>,
     input: Vec<TurnInput>,
     prewarmed_client_session: Option<ModelClientSession>,
@@ -144,6 +159,28 @@ pub(crate) async fn run_turn(
         Some(client_session) => Box::new(client_session),
         None => sess.services.model_runtime.new_turn_runtime(),
     };
+    let initial_procedure_state = match read_active_procedure_state(sess.as_ref()).await {
+        Ok(state) => state,
+        Err(err) => {
+            emit_sampling_setup_error(sess.as_ref(), turn_context.as_ref(), err).await;
+            return None;
+        }
+    };
+    let mut procedure_model_selected =
+        procedure_model_was_selected_for_turn(sess.as_ref(), turn_context.as_ref()).await
+            || (initial_procedure_state.is_active()
+                && turn_context.config.procedure_model.is_some());
+    if procedure_model_selected {
+        let selection =
+            match select_procedure_model_context(sess.as_ref(), Arc::clone(&turn_context)).await {
+                Ok(selection) => selection,
+                Err(err) => {
+                    emit_sampling_setup_error(sess.as_ref(), turn_context.as_ref(), err).await;
+                    return None;
+                }
+            };
+        turn_context = selection.context;
+    }
     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
     // new user message are recorded. Estimate pending incoming items (context
     // diffs/full reinjection + user input) and trigger compaction preemptively
@@ -222,6 +259,41 @@ pub(crate) async fn run_turn(
     // 2. After auto-compact, when model/tool continuation needs to resume before any steer.
 
     loop {
+        let active_procedure_state = match read_active_procedure_state(sess.as_ref()).await {
+            Ok(state) => state,
+            Err(err) => {
+                emit_sampling_setup_error(sess.as_ref(), turn_context.as_ref(), err).await;
+                return None;
+            }
+        };
+        if active_procedure_state.is_active() && turn_context.config.procedure_model.is_some() {
+            procedure_model_selected = true;
+        }
+        if procedure_model_selected {
+            let selection = match select_procedure_model_context(
+                sess.as_ref(),
+                Arc::clone(&turn_context),
+            )
+            .await
+            {
+                Ok(selection) => selection,
+                Err(err) => {
+                    emit_sampling_setup_error(sess.as_ref(), turn_context.as_ref(), err).await;
+                    return None;
+                }
+            };
+            turn_context = selection.context;
+            if selection.switched {
+                sess.record_context_updates_and_set_reference_context_item(turn_context.as_ref())
+                    .await;
+                sess.set_previous_turn_settings(Some(PreviousTurnSettings {
+                    model: turn_context.model_info.slug.clone(),
+                    realtime_active: Some(turn_context.realtime_active),
+                }))
+                .await;
+            }
+        }
+
         // Note that pending_input would be something like a message the user
         // submitted through the UI while the model was running. Though the UI
         // may support this, the model might not.
@@ -249,6 +321,7 @@ pub(crate) async fn run_turn(
         match run_sampling_request(
             Arc::clone(&sess),
             Arc::clone(&turn_context),
+            &active_procedure_state,
             Arc::clone(&turn_extension_data),
             Arc::clone(&turn_diff_tracker),
             client_session.as_mut(),
@@ -931,6 +1004,7 @@ pub(crate) fn build_prompt(
 async fn run_sampling_request(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
+    active_procedure_state: &ActiveProcedureState,
     turn_store: Arc<codex_extension_api::ExtensionData>,
     turn_diff_tracker: SharedTurnDiffTracker,
     client_session: &mut dyn ModelTurnRuntime,
@@ -938,7 +1012,13 @@ async fn run_sampling_request(
     input: Vec<ResponseItem>,
     cancellation_token: CancellationToken,
 ) -> CodexResult<SamplingRequestResult> {
-    let router = built_tools(sess.as_ref(), turn_context.as_ref(), &cancellation_token).await?;
+    let router = built_tools_for_active_procedure_state(
+        sess.as_ref(),
+        turn_context.as_ref(),
+        active_procedure_state,
+        &cancellation_token,
+    )
+    .await?;
 
     let base_instructions = sess.get_base_instructions().await;
 
@@ -1018,6 +1098,21 @@ async fn run_sampling_request(
     }
 }
 
+pub(crate) async fn built_tools(
+    sess: &Session,
+    turn_context: &TurnContext,
+    cancellation_token: &CancellationToken,
+) -> CodexResult<Arc<ToolRouter>> {
+    let active_procedure_state = read_active_procedure_state(sess).await?;
+    built_tools_for_active_procedure_state(
+        sess,
+        turn_context,
+        &active_procedure_state,
+        cancellation_token,
+    )
+    .await
+}
+
 #[expect(
     clippy::await_holding_invalid_type,
     reason = "tool router construction reads through the session-owned manager guard"
@@ -1030,9 +1125,10 @@ async fn run_sampling_request(
         apps_enabled = turn_context.apps_enabled()
     )
 )]
-pub(crate) async fn built_tools(
+async fn built_tools_for_active_procedure_state(
     sess: &Session,
     turn_context: &TurnContext,
+    active_procedure_state: &ActiveProcedureState,
     cancellation_token: &CancellationToken,
 ) -> CodexResult<Arc<ToolRouter>> {
     let mcp_connection_manager = sess
@@ -1118,20 +1214,6 @@ pub(crate) async fn built_tools(
     );
     let mcp_tools = has_mcp_servers.then_some(mcp_tool_exposure.direct_tools);
     let deferred_mcp_tools = mcp_tool_exposure.deferred_tools;
-    let active_dynamic_tool_namespace = if sess.enabled(Feature::Goals) {
-        match sess.get_thread_goal().await {
-            Ok(Some(goal)) if goal.status == codex_protocol::protocol::ThreadGoalStatus::Active => {
-                goal.tool_namespace
-            }
-            Ok(_) => None,
-            Err(err) => {
-                warn!("failed to read active goal before building tools: {err}");
-                None
-            }
-        }
-    } else {
-        None
-    };
     Ok(Arc::new(ToolRouter::from_turn_context(
         turn_context,
         ToolRouterParams {
@@ -1140,7 +1222,7 @@ pub(crate) async fn built_tools(
             discoverable_tools,
             extension_tool_executors: extension_tool_executors(sess),
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
-            active_dynamic_tool_namespace,
+            active_dynamic_tool_namespace: active_procedure_state.tool_namespace(),
         },
     )))
 }

@@ -22,6 +22,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
 use codex_protocol::user_input::UserInput;
 use core_test_support::responses::ev_completed_with_tokens;
+use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_image_generation_call;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::mount_models_once;
@@ -39,6 +40,9 @@ use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
 use wiremock::MockServer;
+
+const DEFAULT_CUSTOMER_MODEL: &str = "test-gemini-flash-lite";
+const PROCEDURE_CUSTOMER_MODEL: &str = "test-gemini-flash";
 
 fn read_only_user_turn(test: &TestCodex, items: Vec<UserInput>, model: String) -> Op {
     let (sandbox_policy, permission_profile) =
@@ -137,6 +141,205 @@ fn test_model_info(
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
     }
+}
+
+fn customer_model_catalog() -> ModelsResponse {
+    ModelsResponse {
+        models: vec![
+            test_model_info(
+                DEFAULT_CUSTOMER_MODEL,
+                "Default customer model",
+                "default customer model",
+                default_input_modalities(),
+            ),
+            test_model_info(
+                PROCEDURE_CUSTOMER_MODEL,
+                "Procedure customer model",
+                "procedure customer model",
+                default_input_modalities(),
+            ),
+        ],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn procedure_activation_switches_the_follow_up_request_within_the_same_turn() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let call_id = "activate-procedure";
+    let marker_name = "procedure-model-release";
+    let shell_args = serde_json::json!({
+        "command": format!("while [ ! -f {marker_name} ]; do sleep 0.01; done")
+    });
+    let responses = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("resp-default"),
+                ev_function_call(call_id, "shell_command", &shell_args.to_string()),
+                ev_completed_with_tokens("resp-default", /*total_tokens*/ 10),
+            ]),
+            sse_completed("resp-procedure"),
+        ],
+    )
+    .await;
+
+    let mut builder = test_codex()
+        .with_model(DEFAULT_CUSTOMER_MODEL)
+        .with_config(|config| {
+            config.procedure_model = Some(PROCEDURE_CUSTOMER_MODEL.to_string());
+            config.model_catalog = Some(customer_model_catalog());
+            config
+                .features
+                .enable(Feature::Goals)
+                .expect("test config should allow goals");
+        });
+    let test = builder.build(&server).await?;
+    let marker = test.workspace_path(marker_name);
+    let _ = std::fs::remove_file(&marker);
+
+    test.codex
+        .submit(read_only_user_turn(
+            &test,
+            vec![UserInput::Text {
+                text: "start the procedure".to_string(),
+                text_elements: Vec::new(),
+            }],
+            DEFAULT_CUSTOMER_MODEL.to_string(),
+        ))
+        .await?;
+
+    let mut turn_ids = Vec::new();
+    loop {
+        let event = test.codex.next_event().await?;
+        match event.msg {
+            EventMsg::TurnStarted(event) => turn_ids.push(event.turn_id),
+            EventMsg::ExecCommandBegin(event) if event.call_id == call_id => break,
+            _ => {}
+        }
+    }
+
+    let state_db = test
+        .codex
+        .state_db()
+        .expect("goals feature should initialize the state database");
+    state_db
+        .thread_goals()
+        .replace_thread_goal_with_tool_namespace(
+            test.session_configured.thread_id,
+            "complete the customer procedure",
+            codex_state::ThreadGoalStatus::Active,
+            Some("customer_procedure".to_string()),
+            /*token_budget*/ None,
+        )
+        .await?;
+    std::fs::write(&marker, b"release")?;
+
+    loop {
+        let event = test.codex.next_event().await?;
+        match event.msg {
+            EventMsg::TurnStarted(event) => turn_ids.push(event.turn_id),
+            EventMsg::TurnComplete(_) => break,
+            _ => {}
+        }
+    }
+    let _ = std::fs::remove_file(&marker);
+
+    let requests = responses.requests();
+    let requested_models = requests
+        .iter()
+        .map(|request| {
+            request.body_json()["model"]
+                .as_str()
+                .expect("request should contain model")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        requested_models,
+        vec![
+            DEFAULT_CUSTOMER_MODEL.to_string(),
+            PROCEDURE_CUSTOMER_MODEL.to_string(),
+        ]
+    );
+    assert_eq!(turn_ids.len(), 1, "both requests should share one turn");
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn procedure_model_is_selected_at_turn_start_and_resets_after_completion() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let responses = mount_sse_sequence(
+        &server,
+        vec![
+            sse_completed("resp-active-procedure"),
+            sse_completed("resp-complete-procedure"),
+        ],
+    )
+    .await;
+    let mut builder = test_codex()
+        .with_model(DEFAULT_CUSTOMER_MODEL)
+        .with_config(|config| {
+            config.procedure_model = Some(PROCEDURE_CUSTOMER_MODEL.to_string());
+            config.model_catalog = Some(customer_model_catalog());
+            config
+                .features
+                .enable(Feature::Goals)
+                .expect("test config should allow goals");
+        });
+    let test = builder.build(&server).await?;
+    let state_db = test
+        .codex
+        .state_db()
+        .expect("goals feature should initialize the state database");
+
+    state_db
+        .thread_goals()
+        .replace_thread_goal_with_tool_namespace(
+            test.session_configured.thread_id,
+            "complete the customer procedure",
+            codex_state::ThreadGoalStatus::Active,
+            Some("customer_procedure".to_string()),
+            /*token_budget*/ None,
+        )
+        .await?;
+    test.submit_turn("continue the active procedure").await?;
+
+    state_db
+        .thread_goals()
+        .replace_thread_goal_with_tool_namespace(
+            test.session_configured.thread_id,
+            "completed customer procedure",
+            codex_state::ThreadGoalStatus::Complete,
+            /*tool_namespace*/ None,
+            /*token_budget*/ None,
+        )
+        .await?;
+    test.submit_turn("start a normal conversation").await?;
+
+    let requested_models = responses
+        .requests()
+        .iter()
+        .map(|request| {
+            request.body_json()["model"]
+                .as_str()
+                .expect("request should contain model")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        requested_models,
+        vec![
+            PROCEDURE_CUSTOMER_MODEL.to_string(),
+            DEFAULT_CUSTOMER_MODEL.to_string(),
+        ]
+    );
+
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

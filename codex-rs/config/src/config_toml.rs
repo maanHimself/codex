@@ -139,6 +139,8 @@ of strings; comma-separated strings are not supported. Use \
 pub struct ConfigToml {
     /// Optional override of model selection.
     pub model: Option<String>,
+    /// Model used for sampling while a persisted procedure is active.
+    pub procedure_model: Option<String>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
 
