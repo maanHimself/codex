@@ -67,7 +67,12 @@ impl ToolExecutor<ToolInvocation> for UpdateGoalHandler {
             .get_thread_goal()
             .await
             .map_err(procedure_read_error)?;
-        if current_procedure.is_none() {
+        if !current_procedure.as_ref().is_some_and(|procedure| {
+            matches!(
+                procedure.status,
+                ThreadGoalStatus::Active | ThreadGoalStatus::Paused
+            )
+        }) {
             return Err(FunctionCallError::RespondToModel(
                 "No current procedure is active. Activate a published procedure before updating its status."
                     .to_string(),

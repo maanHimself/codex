@@ -10143,6 +10143,32 @@ async fn update_procedure_status_tool_marks_procedure_complete() {
         .expect("read thread goal")
         .expect("goal should still exist");
     assert_eq!(goal.status, ThreadGoalStatus::Complete);
+
+    let response = update_handler
+        .handle(ToolInvocation {
+            session: Arc::clone(&session),
+            turn: Arc::clone(&turn_context),
+            cancellation_token: CancellationToken::new(),
+            tracker: Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new())),
+            call_id: "update-completed-procedure".to_string(),
+            tool_name: codex_tools::ToolName::plain("update_procedure_status"),
+            source: ToolCallSource::Direct,
+            payload: ToolPayload::Function {
+                arguments: serde_json::json!({
+                    "status": "active",
+                })
+                .to_string(),
+            },
+        })
+        .await;
+
+    let Err(FunctionCallError::RespondToModel(output)) = response else {
+        panic!("expected a completed procedure to no longer be current");
+    };
+    assert_eq!(
+        output,
+        "No current procedure is active. Activate a published procedure before updating its status."
+    );
 }
 
 #[tokio::test]

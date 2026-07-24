@@ -40,10 +40,17 @@ struct ProcedureToolState {
 impl ProcedureToolResponse {
     fn new(goal: Option<ThreadGoal>) -> Self {
         Self {
-            procedure: goal.map(|goal| ProcedureToolState {
-                objective: goal.objective,
-                status: goal.status,
-            }),
+            procedure: goal
+                .filter(|goal| {
+                    matches!(
+                        goal.status,
+                        ThreadGoalStatus::Active | ThreadGoalStatus::Paused
+                    )
+                })
+                .map(|goal| ProcedureToolState {
+                    objective: goal.objective,
+                    status: goal.status,
+                }),
         }
     }
 }
@@ -98,11 +105,30 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn procedure_response_exposes_only_objective_and_status() {
+    fn terminal_procedure_response_is_not_current() {
         let goal = ThreadGoal {
             thread_id: ThreadId::new(),
             objective: "Keep optimizing".to_string(),
             status: ThreadGoalStatus::Complete,
+            tool_namespace: None,
+            token_budget: Some(10_000),
+            tokens_used: 3_250,
+            time_used_seconds: 75,
+            created_at: 1,
+            updated_at: 2,
+        };
+
+        let response = ProcedureToolResponse::new(Some(goal));
+
+        assert_eq!(response, ProcedureToolResponse { procedure: None });
+    }
+
+    #[test]
+    fn active_procedure_response_exposes_only_objective_and_status() {
+        let goal = ThreadGoal {
+            thread_id: ThreadId::new(),
+            objective: "Keep optimizing".to_string(),
+            status: ThreadGoalStatus::Active,
             tool_namespace: None,
             token_budget: Some(10_000),
             tokens_used: 3_250,
@@ -118,7 +144,7 @@ mod tests {
             ProcedureToolResponse {
                 procedure: Some(ProcedureToolState {
                     objective: "Keep optimizing".to_string(),
-                    status: ThreadGoalStatus::Complete,
+                    status: ThreadGoalStatus::Active,
                 }),
             }
         );

@@ -15,10 +15,12 @@ use codex_protocol::dynamic_tools::DynamicToolResponse;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
-use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::AdditionalContextEntry;
+use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::SessionSource;
@@ -349,6 +351,17 @@ impl CodexRuntimeThread {
             .map_err(|err| CodexErr::InvalidRequest(format!("{err:?}")))
     }
 
+    /// Records a runtime-owned terminal customer exchange without invoking the model.
+    pub async fn record_terminal_exchange(
+        &self,
+        user_message: String,
+        assistant_message: String,
+    ) -> CodexResult<()> {
+        self.thread
+            .inject_response_items(terminal_exchange_items(user_message, assistant_message))
+            .await
+    }
+
     pub async fn submit_dynamic_tool_response(
         &self,
         call_id: String,
@@ -391,6 +404,49 @@ impl CodexRuntimeThread {
                 },
             )
             .await
+            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))
+    }
+
+    pub async fn complete_active_goal_for_turn(
+        &self,
+        turn_id: &str,
+    ) -> CodexResult<Option<ThreadGoal>> {
+        let turn_context = self
+            .thread
+            .codex
+            .session
+            .turn_context_for_sub_id(turn_id)
+            .await
+            .ok_or_else(|| {
+                CodexErr::InvalidRequest(format!("no active turn found for id {turn_id}"))
+            })?;
+        let current_goal = self
+            .thread
+            .codex
+            .session
+            .get_thread_goal()
+            .await
+            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+        if !matches!(
+            current_goal.as_ref().map(|goal| goal.status),
+            Some(ThreadGoalStatus::Active)
+        ) {
+            return Ok(None);
+        }
+        self.thread
+            .codex
+            .session
+            .set_thread_goal(
+                &turn_context,
+                SetGoalRequest {
+                    objective: None,
+                    status: Some(ThreadGoalStatus::Complete),
+                    tool_namespace: None,
+                    token_budget: None,
+                },
+            )
+            .await
+            .map(Some)
             .map_err(|err| CodexErr::InvalidRequest(err.to_string()))
     }
 
@@ -464,6 +520,25 @@ fn user_text_input(input_text: String) -> UserInput {
     }
 }
 
+fn terminal_exchange_items(user_message: String, assistant_message: String) -> Vec<ResponseItem> {
+    vec![
+        ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText { text: user_message }],
+            phase: None,
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: assistant_message,
+            }],
+            phase: None,
+        },
+    ]
+}
+
 struct RuntimeIdleNotifier {
     idle_tx: broadcast::Sender<String>,
 }
@@ -485,5 +560,31 @@ mod tests {
             panic!("expected user input op");
         };
         assert_eq!(environments, Some(Vec::new()));
+    }
+
+    #[test]
+    fn terminal_exchange_is_recorded_as_user_then_assistant_history() {
+        let items = terminal_exchange_items(
+            "I want to book".to_string(),
+            "Bookings are temporarily unavailable.".to_string(),
+        );
+
+        assert_eq!(items.len(), 2);
+        assert!(matches!(
+            &items[0],
+            ResponseItem::Message { role, content, .. }
+                if role == "user"
+                    && content == &vec![ContentItem::InputText {
+                        text: "I want to book".to_string(),
+                    }]
+        ));
+        assert!(matches!(
+            &items[1],
+            ResponseItem::Message { role, content, .. }
+                if role == "assistant"
+                    && content == &vec![ContentItem::OutputText {
+                        text: "Bookings are temporarily unavailable.".to_string(),
+                    }]
+        ));
     }
 }
