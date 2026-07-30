@@ -180,8 +180,6 @@ pub enum Feature {
     SkillEnvVarDependencyPrompt,
     /// Enable the unified mention popup prototype.
     MentionsV2,
-    /// Allow request_user_input in Default collaboration mode.
-    DefaultModeRequestUserInput,
     /// Enable automatic review for approval prompts.
     GuardianApproval,
     /// Enable persisted thread goals and automatic goal continuation.
@@ -1092,12 +1090,6 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "steer",
         stage: Stage::Removed,
         default_enabled: true,
-    },
-    FeatureSpec {
-        id: Feature::DefaultModeRequestUserInput,
-        key: "default_mode_request_user_input",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::GuardianApproval,

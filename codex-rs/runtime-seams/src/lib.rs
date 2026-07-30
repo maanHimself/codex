@@ -27,10 +27,6 @@ pub trait IdGenerator: Send + Sync {
     fn submission_id(&self) -> String {
         Uuid::now_v7().to_string()
     }
-
-    fn uuid_v4(&self) -> String {
-        Uuid::new_v4().to_string()
-    }
 }
 
 #[derive(Debug, Default)]

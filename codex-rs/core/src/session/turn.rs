@@ -2262,7 +2262,7 @@ async fn try_run_sampling_request(
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
 
     if should_emit_token_count {
-        // A tool call such as request_user_input can intentionally pause the turn. Emit token
+        // An MCP elicitation or approval request can intentionally pause the turn. Emit token
         // counts only after pending tools resolve so clients do not see progress events while the
         // turn is waiting on the user. This also needs to happen before returning cancellation so
         // token usage already recorded from the completed response is still persisted.

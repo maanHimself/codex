@@ -43,7 +43,6 @@ mod remote_control;
 #[cfg(debug_assertions)]
 mod remote_thread_store;
 mod request_permissions;
-mod request_user_input;
 mod review;
 mod safety_check_downgrade;
 mod skills_list;
