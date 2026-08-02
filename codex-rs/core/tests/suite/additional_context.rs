@@ -482,10 +482,10 @@ async fn additional_context_removes_one_value_while_adding_another() -> Result<(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn additional_context_values_are_truncated_before_model_input() -> Result<()> {
+async fn only_untrusted_additional_context_is_truncated_before_model_input() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    const MAX_EXPECTED_EXTERNAL_CONTEXT_TEXT_BYTES: usize = 5 * 1024;
+    const MAX_EXPECTED_UNTRUSTED_CONTEXT_TEXT_BYTES: usize = 5 * 1024;
 
     let server = start_mock_server().await;
     let request = mount_sse_once(
@@ -546,18 +546,7 @@ async fn additional_context_values_are_truncated_before_model_input() -> Result<
     let [automation_text] = developer_texts.as_slice() else {
         panic!("expected application additional context, got {developer_texts:?}");
     };
-    assert!(automation_text.starts_with(&format!(
-        "<automation_info>automation-head-{}",
-        "a".repeat(1024)
-    )));
-    assert!(automation_text.contains("tokens truncated"));
-    assert!(automation_text.ends_with("automation-tail</automation_info>"));
-    assert!(automation_text.len() < untruncated_automation_fragment.len());
-    assert!(
-        automation_text.len() <= MAX_EXPECTED_EXTERNAL_CONTEXT_TEXT_BYTES,
-        "application additional context was not capped before model input: {} bytes",
-        automation_text.len()
-    );
+    assert_eq!(automation_text, &untruncated_automation_fragment);
 
     let user_texts = request.message_input_texts("user");
     let [external_text, user_text] = user_texts.as_slice() else {
@@ -572,7 +561,7 @@ async fn additional_context_values_are_truncated_before_model_input() -> Result<
     assert!(external_text.ends_with("browser-tail</external_browser_info>"));
     assert!(external_text.len() < untruncated_browser_fragment.len());
     assert!(
-        external_text.len() <= MAX_EXPECTED_EXTERNAL_CONTEXT_TEXT_BYTES,
+        external_text.len() <= MAX_EXPECTED_UNTRUSTED_CONTEXT_TEXT_BYTES,
         "untrusted additional context was not capped before model input: {} bytes",
         external_text.len()
     );

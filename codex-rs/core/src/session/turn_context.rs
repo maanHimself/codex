@@ -169,6 +169,16 @@ impl TurnContext {
         model: String,
         models_manager: &SharedModelsManager,
     ) -> Self {
+        self.with_model_and_reasoning_effort(model, None, models_manager)
+            .await
+    }
+
+    pub(crate) async fn with_model_and_reasoning_effort(
+        &self,
+        model: String,
+        reasoning_effort_override: Option<ReasoningEffortConfig>,
+        models_manager: &SharedModelsManager,
+    ) -> Self {
         let mut config = (*self.config).clone();
         config.model = Some(model.clone());
         let model_info = models_manager
@@ -189,7 +199,9 @@ impl TurnContext {
             .iter()
             .map(|preset| preset.effort)
             .collect::<Vec<_>>();
-        let reasoning_effort = if let Some(current_reasoning_effort) = self.reasoning_effort {
+        let reasoning_effort = if reasoning_effort_override.is_some() {
+            reasoning_effort_override
+        } else if let Some(current_reasoning_effort) = self.reasoning_effort {
             if supported_reasoning_levels.contains(&current_reasoning_effort) {
                 Some(current_reasoning_effort)
             } else {

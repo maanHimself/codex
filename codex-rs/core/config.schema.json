@@ -5013,6 +5013,14 @@
       "description": "Model used for sampling while a persisted procedure is active.",
       "type": "string"
     },
+    "procedure_model_reasoning_effort": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ReasoningEffort"
+        }
+      ],
+      "description": "Reasoning effort used while a persisted procedure is active."
+    },
     "profile": {
       "description": "Profile to use from the `profiles` map.",
       "type": "string"

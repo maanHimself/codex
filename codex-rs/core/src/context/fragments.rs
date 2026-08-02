@@ -1,7 +1,7 @@
 use super::ContextualUserFragment;
 use codex_utils_string::truncate_middle_with_token_budget;
 
-const MAX_ADDITIONAL_CONTEXT_VALUE_TOKENS: usize = 1_000;
+const MAX_UNTRUSTED_ADDITIONAL_CONTEXT_VALUE_TOKENS: usize = 1_000;
 const ADDITIONAL_CONTEXT_END_MARKER_SUFFIX: &str = ">";
 const ADDITIONAL_CONTEXT_START_MARKER_PREFIX: &str = "<external_";
 
@@ -82,11 +82,11 @@ impl ContextualUserFragment for AdditionalContextDeveloperFragment {
 }
 
 fn additional_context_body(key: &str, value: &str) -> String {
-    let value = truncate_middle_with_token_budget(value, MAX_ADDITIONAL_CONTEXT_VALUE_TOKENS).0;
+    let value =
+        truncate_middle_with_token_budget(value, MAX_UNTRUSTED_ADDITIONAL_CONTEXT_VALUE_TOKENS).0;
     format!("{key}>{value}</external_{key}")
 }
 
 fn additional_context_developer_body(key: &str, value: &str) -> String {
-    let value = truncate_middle_with_token_budget(value, MAX_ADDITIONAL_CONTEXT_VALUE_TOKENS).0;
     format!("<{key}>{value}</{key}>")
 }

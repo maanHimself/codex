@@ -556,6 +556,9 @@ pub struct Config {
     /// Model used for sampling while a persisted procedure is active.
     pub procedure_model: Option<String>,
 
+    /// Reasoning effort used while a persisted procedure is active.
+    pub procedure_model_reasoning_effort: Option<ReasoningEffort>,
+
     /// Effective service tier request id preference for new turns.
     /// `default` means the user explicitly selected standard routing.
     pub service_tier: Option<String>,
@@ -3325,6 +3328,7 @@ impl Config {
         let config = Self {
             model,
             procedure_model: cfg.procedure_model,
+            procedure_model_reasoning_effort: cfg.procedure_model_reasoning_effort,
             service_tier,
             review_model,
             model_context_window: cfg.model_context_window,

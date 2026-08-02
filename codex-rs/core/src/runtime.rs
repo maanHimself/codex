@@ -157,6 +157,7 @@ pub struct CodexRuntimeHost {
 pub struct CodexRuntimeHostOptions {
     pub config: Config,
     pub session_source: SessionSource,
+    pub enable_codex_api_key_env: bool,
 }
 
 impl CodexRuntimeHostOptions {
@@ -164,7 +165,13 @@ impl CodexRuntimeHostOptions {
         Self {
             config,
             session_source: SessionSource::Custom("azoz-ai-runtime".to_string()),
+            enable_codex_api_key_env: false,
         }
+    }
+
+    pub fn enable_codex_api_key_env(mut self) -> Self {
+        self.enable_codex_api_key_env = true;
+        self
     }
 }
 
@@ -177,10 +184,10 @@ impl CodexRuntimeHost {
         let CodexRuntimeHostOptions {
             config,
             session_source,
+            enable_codex_api_key_env,
         } = options;
         let state_db = crate::init_state_db(&config).await;
-        let auth_manager =
-            AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await;
+        let auth_manager = AuthManager::shared_from_config(&config, enable_codex_api_key_env).await;
         let runtime_paths =
             ExecServerRuntimePaths::from_optional_paths(Some(std::env::current_exe()?), None)?;
         let environment_manager =

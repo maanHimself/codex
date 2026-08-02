@@ -137,6 +137,8 @@ pub struct ConfigToml {
     pub model: Option<String>,
     /// Model used for sampling while a persisted procedure is active.
     pub procedure_model: Option<String>,
+    /// Reasoning effort used while a persisted procedure is active.
+    pub procedure_model_reasoning_effort: Option<ReasoningEffort>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
 

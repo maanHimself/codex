@@ -77,8 +77,12 @@ pub(crate) async fn select_procedure_model_context(
             switched: false,
         });
     };
+    let procedure_reasoning_effort = turn_context.config.procedure_model_reasoning_effort;
 
-    if turn_context.model_info.slug == procedure_model {
+    if turn_context.model_info.slug == procedure_model
+        && (procedure_reasoning_effort.is_none()
+            || turn_context.reasoning_effort == procedure_reasoning_effort)
+    {
         if turn_context.model_info.used_fallback_model_metadata {
             error!(
                 model = %procedure_model,
@@ -94,7 +98,11 @@ pub(crate) async fn select_procedure_model_context(
 
     let next_context = Arc::new(
         turn_context
-            .with_model(procedure_model.clone(), &session.services.models_manager)
+            .with_model_and_reasoning_effort(
+                procedure_model.clone(),
+                procedure_reasoning_effort,
+                &session.services.models_manager,
+            )
             .await,
     );
     if next_context.model_info.used_fallback_model_metadata {
@@ -109,6 +117,8 @@ pub(crate) async fn select_procedure_model_context(
         turn_id = %turn_context.sub_id,
         from_model = %turn_context.model_info.slug,
         to_model = %next_context.model_info.slug,
+        from_reasoning_effort = ?turn_context.reasoning_effort,
+        to_reasoning_effort = ?next_context.reasoning_effort,
         reason = "active_procedure",
         "switching model for procedure sampling"
     );
