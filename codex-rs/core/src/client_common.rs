@@ -72,6 +72,24 @@ pub struct ResponseStream {
     pub(crate) consumer_dropped: CancellationToken,
 }
 
+impl ResponseStream {
+    /// Build a response stream from completed events supplied by an embedding runtime.
+    pub fn from_completed_events(events: Vec<Result<ResponseEvent>>) -> Self {
+        let (tx_event, rx_event) = mpsc::channel(events.len().max(1));
+        for event in events {
+            assert!(
+                tx_event.try_send(event).is_ok(),
+                "completed response event channel should have capacity"
+            );
+        }
+        drop(tx_event);
+        Self {
+            rx_event,
+            consumer_dropped: CancellationToken::new(),
+        }
+    }
+}
+
 impl Stream for ResponseStream {
     type Item = Result<ResponseEvent>;
 

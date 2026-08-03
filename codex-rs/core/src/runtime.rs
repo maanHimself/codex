@@ -1,6 +1,6 @@
 //! Runtime seams for embedding Codex in durable hosts.
 
-use async_trait::async_trait;
+pub use async_trait::async_trait;
 use codex_async_utils::OrCancelExt;
 use codex_exec_server::EnvironmentManager;
 use codex_exec_server::ExecServerRuntimePaths;
@@ -8,7 +8,7 @@ use codex_extension_api::ExtensionRegistryBuilder;
 use codex_extension_api::ThreadIdleInput;
 use codex_extension_api::ThreadLifecycleContributor;
 use codex_login::AuthManager;
-use codex_otel::SessionTelemetry;
+pub use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use codex_protocol::dynamic_tools::DynamicToolResponse;
@@ -39,6 +39,7 @@ use crate::codex_thread::CodexThread;
 use crate::config::Config;
 use crate::goals::SetGoalRequest;
 use crate::installation_id::resolve_installation_id;
+use crate::thread_manager::ForkSnapshot;
 use crate::thread_manager::NewThread;
 use crate::thread_manager::ThreadManager;
 use crate::thread_store_from_config;
@@ -85,6 +86,10 @@ pub trait ModelRuntime: Send + Sync {
 
     fn current_window_id(&self) -> String;
 }
+
+/// Wraps the default model runtime for an embedding host while preserving Codex defaults.
+pub type ModelRuntimeFactory =
+    Arc<dyn Fn(DefaultModelRuntime) -> Arc<dyn ModelRuntime> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct DefaultModelRuntime {
@@ -158,6 +163,7 @@ pub struct CodexRuntimeHostOptions {
     pub config: Config,
     pub session_source: SessionSource,
     pub enable_codex_api_key_env: bool,
+    pub model_runtime_factory: Option<ModelRuntimeFactory>,
 }
 
 impl CodexRuntimeHostOptions {
@@ -166,11 +172,18 @@ impl CodexRuntimeHostOptions {
             config,
             session_source: SessionSource::Custom("azoz-ai-runtime".to_string()),
             enable_codex_api_key_env: false,
+            model_runtime_factory: None,
         }
     }
 
     pub fn enable_codex_api_key_env(mut self) -> Self {
         self.enable_codex_api_key_env = true;
+        self
+    }
+
+    /// Supply the model runtime wrapper used for every thread spawned by this host.
+    pub fn model_runtime_factory(mut self, factory: ModelRuntimeFactory) -> Self {
+        self.model_runtime_factory = Some(factory);
         self
     }
 }
@@ -185,6 +198,7 @@ impl CodexRuntimeHost {
             config,
             session_source,
             enable_codex_api_key_env,
+            model_runtime_factory,
         } = options;
         let state_db = crate::init_state_db(&config).await;
         let auth_manager = AuthManager::shared_from_config(&config, enable_codex_api_key_env).await;
@@ -200,7 +214,7 @@ impl CodexRuntimeHost {
         extension_builder.thread_lifecycle_contributor(Arc::new(RuntimeIdleNotifier {
             idle_tx: idle_tx.clone(),
         }));
-        let thread_manager = Arc::new(ThreadManager::new(
+        let thread_manager = Arc::new(ThreadManager::new_with_model_runtime_factory(
             &config,
             auth_manager.clone(),
             session_source,
@@ -211,6 +225,7 @@ impl CodexRuntimeHost {
             state_db,
             installation_id,
             /*attestation_provider*/ None,
+            model_runtime_factory,
         ));
 
         Ok(Self {
@@ -273,6 +288,41 @@ impl CodexRuntimeHost {
                 Ok(self.runtime_thread(thread_id, thread))
             }
         }
+    }
+
+    /// Start a persistent child of the last committed thread for one top-level turn.
+    pub async fn start_working_thread(
+        &self,
+        committed_thread_id: Option<&str>,
+        dynamic_tools: Vec<DynamicToolSpec>,
+    ) -> CodexResult<CodexRuntimeThread> {
+        let Some(committed_thread_id) = committed_thread_id else {
+            return self.open_thread(None, dynamic_tools).await;
+        };
+        let committed = self
+            .open_thread(Some(committed_thread_id), Vec::new())
+            .await?;
+        committed.flush_rollout().await?;
+        let rollout_path = committed.thread.rollout_path().ok_or_else(|| {
+            CodexErr::Fatal(format!(
+                "committed thread {committed_thread_id} has no persistent rollout"
+            ))
+        })?;
+        let NewThread {
+            thread_id, thread, ..
+        } = self
+            .thread_manager
+            .fork_thread_with_dynamic_tools(
+                ForkSnapshot::Interrupted,
+                self.config.clone(),
+                rollout_path,
+                dynamic_tools,
+                /*thread_source*/ None,
+                /*persist_extended_history*/ false,
+                /*parent_trace*/ None,
+            )
+            .await?;
+        Ok(self.runtime_thread(thread_id, thread))
     }
 
     fn runtime_thread(&self, thread_id: ThreadId, thread: Arc<CodexThread>) -> CodexRuntimeThread {
@@ -367,6 +417,19 @@ impl CodexRuntimeThread {
                 response,
             })
             .await
+    }
+
+    /// Interrupt the active turn through Codex's native operation channel.
+    pub async fn interrupt_turn(&self) -> CodexResult<String> {
+        self.thread.submit(Op::Interrupt).await
+    }
+
+    /// Flush the thread's persistent rollout before an embedding host commits it.
+    pub async fn flush_rollout(&self) -> CodexResult<()> {
+        self.thread
+            .flush_rollout()
+            .await
+            .map_err(|err| CodexErr::Fatal(format!("failed to flush thread rollout: {err}")))
     }
 
     pub async fn set_goal_for_turn(

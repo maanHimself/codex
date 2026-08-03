@@ -83,6 +83,8 @@ pub(crate) struct SessionServices {
     pub(crate) model_client: ModelClient,
     /// Session-scoped model runtime seam. Defaults to the model client above.
     pub(crate) model_runtime: Arc<dyn ModelRuntime>,
+    /// Factory used to preserve the embedding host's model runtime across child threads.
+    pub(crate) model_runtime_factory: Option<crate::runtime::ModelRuntimeFactory>,
     /// Event sink seam for durable embedding hosts.
     pub(crate) event_sink: Arc<dyn EventSink>,
     /// ID generator seam for durable embedding hosts.

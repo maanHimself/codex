@@ -8,6 +8,7 @@ use crate::environment_selection::default_thread_environment_selections;
 use crate::environment_selection::resolve_environment_selections;
 use crate::mcp::McpManager;
 use crate::rollout::truncation;
+use crate::runtime::ModelRuntimeFactory;
 use crate::session::Codex;
 use crate::session::CodexSpawnArgs;
 use crate::session::CodexSpawnOk;
@@ -210,6 +211,7 @@ pub(crate) struct ThreadManagerState {
     installation_id: String,
     analytics_events_client: Option<AnalyticsEventsClient>,
     state_db: Option<StateDbHandle>,
+    model_runtime_factory: Option<ModelRuntimeFactory>,
     // Captures submitted ops for testing purpose when test mode is enabled.
     ops_log: Option<SharedCapturedOps>,
 }
@@ -252,6 +254,35 @@ impl ThreadManager {
         installation_id: String,
         attestation_provider: Option<Arc<dyn AttestationProvider>>,
     ) -> Self {
+        Self::new_with_model_runtime_factory(
+            config,
+            auth_manager,
+            session_source,
+            environment_manager,
+            extensions,
+            analytics_events_client,
+            thread_store,
+            state_db,
+            installation_id,
+            attestation_provider,
+            /*model_runtime_factory*/ None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_model_runtime_factory(
+        config: &Config,
+        auth_manager: Arc<AuthManager>,
+        session_source: SessionSource,
+        environment_manager: Arc<EnvironmentManager>,
+        extensions: Arc<ExtensionRegistry<Config>>,
+        analytics_events_client: Option<AnalyticsEventsClient>,
+        thread_store: Arc<dyn ThreadStore>,
+        state_db: Option<StateDbHandle>,
+        installation_id: String,
+        attestation_provider: Option<Arc<dyn AttestationProvider>>,
+        model_runtime_factory: Option<ModelRuntimeFactory>,
+    ) -> Self {
         let codex_home = config.codex_home.clone();
         let restriction_product = session_source.restriction_product();
         let (thread_created_tx, _) = broadcast::channel(THREAD_CREATED_CHANNEL_CAPACITY);
@@ -282,6 +313,7 @@ impl ThreadManager {
                 installation_id,
                 analytics_events_client,
                 state_db,
+                model_runtime_factory,
                 ops_log: should_use_test_thread_manager_behavior()
                     .then(|| Arc::new(std::sync::Mutex::new(Vec::new()))),
             }),
@@ -383,6 +415,7 @@ impl ThreadManager {
                 installation_id,
                 analytics_events_client: None,
                 state_db,
+                model_runtime_factory: None,
                 ops_log: should_use_test_thread_manager_behavior()
                     .then(|| Arc::new(std::sync::Mutex::new(Vec::new()))),
             }),
@@ -883,12 +916,40 @@ impl ThreadManager {
     where
         S: Into<ForkSnapshot>,
     {
+        self.fork_thread_with_dynamic_tools(
+            snapshot,
+            config,
+            path,
+            Vec::new(),
+            thread_source,
+            persist_extended_history,
+            parent_trace,
+        )
+        .await
+    }
+
+    /// Fork an existing thread while supplying the dynamic tools for the child session.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fork_thread_with_dynamic_tools<S>(
+        &self,
+        snapshot: S,
+        config: Config,
+        path: PathBuf,
+        dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+        thread_source: Option<ThreadSource>,
+        persist_extended_history: bool,
+        parent_trace: Option<W3cTraceContext>,
+    ) -> CodexResult<NewThread>
+    where
+        S: Into<ForkSnapshot>,
+    {
         let snapshot = snapshot.into();
         let history = self.initial_history_from_rollout_path(path).await?;
-        self.fork_thread_from_history(
+        self.fork_thread_with_initial_history(
             snapshot,
             config,
             history,
+            dynamic_tools,
             thread_source,
             persist_extended_history,
             parent_trace,
@@ -931,6 +992,7 @@ impl ThreadManager {
             snapshot.into(),
             config,
             history,
+            Vec::new(),
             thread_source,
             persist_extended_history,
             parent_trace,
@@ -943,6 +1005,7 @@ impl ThreadManager {
         snapshot: ForkSnapshot,
         config: Config,
         history: InitialHistory,
+        dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
         thread_source: Option<ThreadSource>,
         persist_extended_history: bool,
         parent_trace: Option<W3cTraceContext>,
@@ -967,7 +1030,7 @@ impl ThreadManager {
             self.agent_control(),
             forked_from_thread_id,
             thread_source,
-            Vec::new(),
+            dynamic_tools,
             persist_extended_history,
             /*metrics_service_name*/ None,
             parent_trace,
@@ -1321,6 +1384,7 @@ impl ThreadManagerState {
             analytics_events_client: self.analytics_events_client.clone(),
             thread_store: Arc::clone(&self.thread_store),
             attestation_provider: self.attestation_provider.clone(),
+            model_runtime_factory: self.model_runtime_factory.clone(),
         })
         .await?;
         let new_thread = self

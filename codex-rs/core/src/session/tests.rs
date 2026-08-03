@@ -4508,6 +4508,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_packaged_zsh() {
         )),
         codex_rollout_trace::ThreadTraceContext::disabled(),
         /*attestation_provider*/ None,
+        /*model_runtime_factory*/ None,
     )
     .await;
 
@@ -4682,6 +4683,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         model_runtime: Arc::new(crate::runtime::DefaultModelRuntime::new(
             model_client.clone(),
         )),
+        model_runtime_factory: None,
         event_sink: Arc::new(crate::runtime::NoopEventSink),
         id_generator: Arc::new(crate::runtime::DefaultIdGenerator),
         tool_execution_runtime: Arc::new(crate::runtime::DefaultToolExecutionRuntime),
@@ -4861,6 +4863,7 @@ async fn make_session_with_config_and_rx(
         )),
         codex_rollout_trace::ThreadTraceContext::disabled(),
         /*attestation_provider*/ None,
+        /*model_runtime_factory*/ None,
     )
     .await?;
 
@@ -4972,6 +4975,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
         )),
         codex_rollout_trace::ThreadTraceContext::disabled(),
         /*attestation_provider*/ None,
+        /*model_runtime_factory*/ None,
     )
     .await?;
 
@@ -6532,6 +6536,7 @@ where
         model_runtime: Arc::new(crate::runtime::DefaultModelRuntime::new(
             model_client.clone(),
         )),
+        model_runtime_factory: None,
         event_sink: Arc::new(crate::runtime::NoopEventSink),
         id_generator: Arc::new(crate::runtime::DefaultIdGenerator),
         tool_execution_runtime: Arc::new(crate::runtime::DefaultToolExecutionRuntime),

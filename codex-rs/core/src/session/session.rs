@@ -501,6 +501,7 @@ impl Session {
         thread_store: Arc<dyn ThreadStore>,
         parent_rollout_thread_trace: ThreadTraceContext,
         attestation_provider: Option<Arc<dyn AttestationProvider>>,
+        model_runtime_factory: Option<crate::runtime::ModelRuntimeFactory>,
     ) -> anyhow::Result<Arc<Self>> {
         debug!(
             "Configuring session: model={}; provider={:?}",
@@ -993,6 +994,13 @@ impl Session {
                 ),
             );
 
+            let default_model_runtime = crate::runtime::DefaultModelRuntime::new(
+                model_client.clone(),
+            );
+            let model_runtime = model_runtime_factory
+                .as_ref()
+                .map(|factory| factory(default_model_runtime.clone()))
+                .unwrap_or_else(|| Arc::new(default_model_runtime));
             let services = SessionServices {
                 // Initialize the MCP connection manager with an uninitialized
                 // instance. It will be replaced with one created via
@@ -1044,9 +1052,8 @@ impl Session {
                 live_thread: live_thread_init.as_ref().cloned(),
                 thread_store: Arc::clone(&thread_store),
                 attestation_provider: attestation_provider.clone(),
-                model_runtime: Arc::new(crate::runtime::DefaultModelRuntime::new(
-                    model_client.clone(),
-                )),
+                model_runtime,
+                model_runtime_factory,
                 event_sink: Arc::new(crate::runtime::NoopEventSink),
                 id_generator: Arc::new(crate::runtime::DefaultIdGenerator),
                 tool_execution_runtime: Arc::new(crate::runtime::DefaultToolExecutionRuntime),
