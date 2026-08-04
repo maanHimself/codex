@@ -62,6 +62,59 @@ WHERE thread_id = ?
         row.map(|row| thread_goal_from_row(&row)).transpose()
     }
 
+    pub async fn copy_thread_goal(
+        &self,
+        source_thread_id: ThreadId,
+        child_thread_id: ThreadId,
+    ) -> anyhow::Result<Option<crate::ThreadGoal>> {
+        let row = sqlx::query(
+            r#"
+INSERT INTO thread_goals (
+    thread_id,
+    goal_id,
+    objective,
+    status,
+    tool_namespace,
+    token_budget,
+    tokens_used,
+    time_used_seconds,
+    created_at_ms,
+    updated_at_ms
+)
+SELECT
+    ?,
+    goal_id,
+    objective,
+    status,
+    tool_namespace,
+    token_budget,
+    tokens_used,
+    time_used_seconds,
+    created_at_ms,
+    updated_at_ms
+FROM thread_goals
+WHERE thread_id = ?
+RETURNING
+    thread_id,
+    goal_id,
+    objective,
+    status,
+    tool_namespace,
+    token_budget,
+    tokens_used,
+    time_used_seconds,
+    created_at_ms,
+    updated_at_ms
+            "#,
+        )
+        .bind(child_thread_id.to_string())
+        .bind(source_thread_id.to_string())
+        .fetch_optional(self.pool.as_ref())
+        .await?;
+
+        row.map(|row| thread_goal_from_row(&row)).transpose()
+    }
+
     pub async fn replace_thread_goal(
         &self,
         thread_id: ThreadId,

@@ -25,6 +25,7 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::ThreadGoal;
 use codex_protocol::protocol::ThreadGoalStatus;
 use codex_protocol::user_input::UserInput;
+use codex_rollout::state_db::StateDbHandle;
 use codex_rollout_trace::InferenceTraceContext;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -156,6 +157,7 @@ pub struct CodexRuntimeHost {
     config: Config,
     auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
+    state_db: Option<StateDbHandle>,
     idle_tx: broadcast::Sender<String>,
 }
 
@@ -201,6 +203,7 @@ impl CodexRuntimeHost {
             model_runtime_factory,
         } = options;
         let state_db = crate::init_state_db(&config).await;
+        let runtime_state_db = state_db.clone();
         let auth_manager = AuthManager::shared_from_config(&config, enable_codex_api_key_env).await;
         let runtime_paths =
             ExecServerRuntimePaths::from_optional_paths(Some(std::env::current_exe()?), None)?;
@@ -232,6 +235,7 @@ impl CodexRuntimeHost {
             config,
             auth_manager,
             thread_manager,
+            state_db: runtime_state_db,
             idle_tx,
         })
     }
@@ -322,6 +326,20 @@ impl CodexRuntimeHost {
                 /*parent_trace*/ None,
             )
             .await?;
+        if let Some(state_db) = self.state_db.as_ref()
+            && let Err(error) = state_db
+                .thread_goals()
+                .copy_thread_goal(committed.thread_id(), thread_id)
+                .await
+        {
+            tracing::error!(
+                committed_thread_id,
+                child_thread_id = %thread_id,
+                error = %error,
+                "failed to copy the committed thread goal to its working child"
+            );
+            return Err(CodexErr::InternalServerError);
+        }
         Ok(self.runtime_thread(thread_id, thread))
     }
 
@@ -548,6 +566,11 @@ impl ThreadLifecycleContributor<Config> for RuntimeIdleNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_features::Feature;
+    use codex_state::GoalAccountingMode;
+    use core_test_support::PathBufExt;
+    use core_test_support::PathExt;
+    use tempfile::tempdir;
 
     #[test]
     fn runtime_user_text_op_explicitly_disables_turn_environments() {
@@ -555,5 +578,84 @@ mod tests {
             panic!("expected user input op");
         };
         assert_eq!(environments, Some(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn start_working_thread_inherits_goal_without_sharing_accounting() -> anyhow::Result<()> {
+        let temp_dir = tempdir()?;
+        let mut config = crate::config::test_config().await;
+        config.codex_home = temp_dir.path().join("codex-home").abs();
+        config.cwd = config.codex_home.abs();
+        config
+            .features
+            .enable(Feature::Goals)
+            .expect("goals should be enableable in tests");
+        std::fs::create_dir_all(&config.codex_home)?;
+
+        let host = CodexRuntimeHost::new(config).await?;
+        let parent = host.open_thread(None, Vec::new()).await?;
+        parent.flush_rollout().await?;
+        let state_db = host
+            .state_db
+            .as_ref()
+            .expect("runtime host should have a state database");
+        let parent_thread_id = parent.thread_id();
+        let seeded_goal = state_db
+            .thread_goals()
+            .replace_thread_goal_with_tool_namespace(
+                parent_thread_id,
+                "Continue the published refund procedure",
+                codex_state::ThreadGoalStatus::Active,
+                Some("procedure.refund.v1".to_string()),
+                Some(1_000),
+            )
+            .await?;
+        state_db
+            .thread_goals()
+            .account_thread_goal_usage(
+                parent_thread_id,
+                3,
+                7,
+                GoalAccountingMode::ActiveOnly,
+                Some(&seeded_goal.goal_id),
+            )
+            .await?;
+        let parent_goal = state_db
+            .thread_goals()
+            .get_thread_goal(parent_thread_id)
+            .await?
+            .expect("parent goal should exist");
+
+        let child = host
+            .start_working_thread(Some(&parent.thread_id_string()), Vec::new())
+            .await?;
+        assert_ne!(child.thread_id(), parent_thread_id);
+        let child_goal = state_db
+            .thread_goals()
+            .get_thread_goal(child.thread_id())
+            .await?
+            .expect("working child should inherit the parent goal");
+        let mut expected_child_goal = parent_goal.clone();
+        expected_child_goal.thread_id = child.thread_id();
+        assert_eq!(child_goal, expected_child_goal);
+
+        state_db
+            .thread_goals()
+            .account_thread_goal_usage(
+                child.thread_id(),
+                5,
+                11,
+                GoalAccountingMode::ActiveOnly,
+                Some(&child_goal.goal_id),
+            )
+            .await?;
+        assert_eq!(
+            state_db
+                .thread_goals()
+                .get_thread_goal(parent_thread_id)
+                .await?,
+            Some(parent_goal)
+        );
+        Ok(())
     }
 }
